@@ -1,0 +1,66 @@
+name: Update Documentation (MVP Test)
+
+# SAFE TEST WORKFLOW - Only runs on test-doc-automation branch
+# Does NOT affect main branch at all
+
+on:
+  push:
+    branches:
+      - test-doc-automation  # Only this branch triggers the workflow
+
+# Required for OIDC authentication (recommended) or contents write for commits
+permissions:
+  id-token: write  # For OIDC AWS authentication
+  contents: write  # To commit documentation updates
+
+jobs:
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git diff
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+      
+      # Option 1: OIDC (Recommended - matches existing workflows)
+      # Uncomment this and comment out Option 2 when OIDC role is set up
+      # - name: Configure AWS Credentials (OIDC)
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ secrets.DOC_UPDATER_ROLE_ARN }}
+      #     aws-region: us-east-1
+      
+      # Option 2: Access Keys (Simpler for MVP testing)
+      # Comment this out when switching to OIDC
+      - name: Configure AWS Credentials (Access Keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.DOC_UPDATER_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.DOC_UPDATER_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      
+      - name: Update documentation
+        run: node scripts/update-docs.js
+        env:
+          AWS_REGION: us-east-1
+          BEDROCK_MODEL_ID: us.anthropic.claude-3-5-sonnet-20241022-v2:0
+          MAX_TOKENS: 8192
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo "### Documentation Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Commit: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

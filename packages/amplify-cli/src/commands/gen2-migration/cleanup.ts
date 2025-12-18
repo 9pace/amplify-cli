@@ -22,3 +22,4 @@ export class AmplifyMigrationCleanupStep extends AmplifyMigrationStep {
     printer.warn('Not implemented');
   }
 }
+// Test on fork
