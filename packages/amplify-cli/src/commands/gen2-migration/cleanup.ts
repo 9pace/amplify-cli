@@ -31,3 +31,4 @@ function testDocUpdaterOnFork() {
   return 'Testing on fork';
 }
 // Test after policy fix
+// Test after policy update
