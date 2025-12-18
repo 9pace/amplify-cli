@@ -23,3 +23,10 @@ export class AmplifyMigrationCleanupStep extends AmplifyMigrationStep {
   }
 }
 // Test on fork
+
+/**
+ * Test function to verify documentation updater on fork
+ */
+function testDocUpdaterOnFork() {
+  return 'Testing on fork';
+}
