@@ -30,3 +30,4 @@ export class AmplifyMigrationCleanupStep extends AmplifyMigrationStep {
 function testDocUpdaterOnFork() {
   return 'Testing on fork';
 }
+// Test after policy fix
