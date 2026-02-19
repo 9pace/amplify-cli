@@ -707,6 +707,7 @@ class TemplateGenerator {
       ),
     );
     if (sourceResourcesToRemove.size === 0) {
+      // Internal sentinel — caught by isNoResourcesError() for control flow (skips category)
       throw new Error(`${NO_RESOURCES_TO_MOVE_ERROR} in ${category} stack.`);
     }
     const describeStackResponseForSourceTemplate = await categoryTemplateGenerator.describeStack(sourceCategoryStackId);

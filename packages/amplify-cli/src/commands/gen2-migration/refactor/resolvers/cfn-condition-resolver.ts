@@ -120,6 +120,7 @@ class CFNConditionResolver {
         result = !!(resolvedLeftStatement && resolvedRightStatement);
         break;
       default:
+        // Internal assertion — unsupported CFN function type, not user-facing
         throw new Error(`Invalid ${fnType} condition`);
     }
     return result;

@@ -462,6 +462,144 @@ describe('TemplateGenerator', () => {
     jest.clearAllMocks();
   });
 
+  // --- generateSelectedCategories tests ---
+
+  it('should refactor selected categories from Gen1 to Gen2 successfully', async () => {
+    const generator = new TemplateGenerator(
+      GEN1_ROOT_STACK_NAME,
+      GEN2_ROOT_STACK_NAME,
+      ACCOUNT_ID,
+      STUB_CFN_CLIENT,
+      STUB_SSM_CLIENT,
+      STUB_COGNITO_IDP_CLIENT,
+      APP_ID,
+      ENV_NAME,
+      new Logger('mock', 'mock', 'mock'),
+      REGION,
+    );
+    await generator.initializeForAssessment();
+    const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
+
+    expect(result).toBe(true);
+    expect(fs.mkdir).toBeCalledTimes(1);
+    expect(mockGenerateGen1PreProcessTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+    expect(mockGenerateGen2ResourceRemovalTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+    expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+  });
+
+  it('should skip categories that have already been refactored when using generateSelectedCategories', async () => {
+    mockGenerateGen1PreProcessTemplate.mockImplementationOnce(() => {
+      throw new Error('No resources to move in Gen1 stack');
+    });
+    const generator = new TemplateGenerator(
+      GEN1_ROOT_STACK_NAME,
+      GEN2_ROOT_STACK_NAME,
+      ACCOUNT_ID,
+      STUB_CFN_CLIENT,
+      STUB_SSM_CLIENT,
+      STUB_COGNITO_IDP_CLIENT,
+      APP_ID,
+      ENV_NAME,
+      new Logger('mock', 'mock', 'mock'),
+      REGION,
+    );
+    await generator.initializeForAssessment();
+    const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
+
+    expect(result).toBe(true);
+    expect(mockGenerateGen1PreProcessTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+    // One category skipped, so gen2 removal and refactor called one fewer time
+    expect(mockGenerateGen2ResourceRemovalTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - 1);
+    expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - 1);
+  });
+
+  it('should throw when no applicable destination category exists during initializeForAssessment', async () => {
+    const mockDescribeGen2StackResourcesWithStorageMissing: DescribeStackResourcesOutput = {
+      StackResources: [
+        {
+          ResourceType: 'AWS::CloudFormation::Stack',
+          ResourceStatus: 'CREATE_COMPLETE',
+          LogicalResourceId: 'auth',
+          PhysicalResourceId: GEN2_AUTH_STACK_ID,
+          Timestamp: new Date(),
+        },
+      ],
+    };
+    const failureSendMock = (command: any) => {
+      if (command instanceof DescribeStackResourcesCommand) {
+        return Promise.resolve(
+          command.input.StackName === GEN1_ROOT_STACK_NAME
+            ? mockDescribeGen1StackResources
+            : mockDescribeGen2StackResourcesWithStorageMissing,
+        );
+      }
+      if (command instanceof DescribeStacksCommand) {
+        return describeStacksResponse(command.input.StackName);
+      }
+      return Promise.resolve({});
+    };
+    mockCfnClientSendMock.mockImplementation(failureSendMock);
+
+    const generator = new TemplateGenerator(
+      GEN1_ROOT_STACK_NAME,
+      GEN2_ROOT_STACK_NAME,
+      ACCOUNT_ID,
+      STUB_CFN_CLIENT,
+      STUB_SSM_CLIENT,
+      STUB_COGNITO_IDP_CLIENT,
+      APP_ID,
+      ENV_NAME,
+      new Logger('mock', 'mock', 'mock'),
+      REGION,
+    );
+    await expect(generator.initializeForAssessment()).rejects.toThrow(
+      'No corresponding category found in destination stack for storage category',
+    );
+  });
+
+  it('should return false and rollback gen2 stack when stack refactor fails', async () => {
+    mockCfnClientSendMock.mockImplementation((command) => {
+      if (command instanceof DescribeStackResourcesCommand) {
+        return describeStackResourcesResponse(command.input.StackName);
+      }
+      if (command instanceof UpdateStackCommand) {
+        return Promise.resolve({});
+      }
+      if (command instanceof DescribeStacksCommand) {
+        return describeStacksResponse(command.input.StackName);
+      }
+      if (command instanceof CreateStackRefactorCommand) {
+        return Promise.resolve({ StackRefactorId: '12345' });
+      }
+      if (command instanceof DescribeStackRefactorCommand) {
+        return Promise.resolve({
+          Status: StackRefactorStatus.CREATE_FAILED,
+          StatusReason: 'Update operations not permitted in refactor',
+        });
+      }
+      return Promise.resolve({});
+    });
+
+    const generator = new TemplateGenerator(
+      GEN1_ROOT_STACK_NAME,
+      GEN2_ROOT_STACK_NAME,
+      ACCOUNT_ID,
+      STUB_CFN_CLIENT,
+      STUB_SSM_CLIENT,
+      STUB_COGNITO_IDP_CLIENT,
+      APP_ID,
+      ENV_NAME,
+      new Logger('mock', 'mock', 'mock'),
+      REGION,
+    );
+    await generator.initializeForAssessment();
+    const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
+
+    expect(result).toBe(false);
+  });
+
+  // --- rollback tests ---
+
   it('should rollback resources from Gen2 to Gen1 successfully', async () => {
     // Act
     const generator = new TemplateGenerator(

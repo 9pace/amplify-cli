@@ -98,7 +98,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }
     }
 
-    // validate empty resources
+    // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
     if (this.gen1ResourcesToMove.size === 0) throw new Error('No resources to move in Gen1 stack.');
     const logicalResourceIds = [...this.gen1ResourcesToMove.keys()];
 
@@ -189,7 +189,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }
     }
 
-    // validate empty resources
+    // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
     if (this.gen2ResourcesToRemove.size === 0) throw new Error('No resources to remove in Gen2 stack.');
     const logicalResourceIds = [...this.gen2ResourcesToRemove.keys()];
 

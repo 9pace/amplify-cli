@@ -1,15 +1,93 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="jest tests" tests="2" failures="1" errors="0" time="5.773">
-  <testsuite name="CustomResourceMigrator - End to End" errors="0" failures="1" skipped="1" timestamp="2025-10-24T19:46:36" time="5.733" tests="2">
-    <testcase classname="CustomResourceMigrator - End to End should migrate SNS topic custom resource" name="CustomResourceMigrator - End to End should migrate SNS topic custom resource" time="0.017">
-      <failure>Error: expect(received).toBe(expected) // Object.is equality
-
-Expected: true
-Received: false
-    at Object.&lt;anonymous&gt; (/Users/sanjrkmr/amplify-cli/packages/amplify-cli/src/__tests__/commands/gen2-migration/codegen-custom-resources/integration/end-to-end.test.ts:68:42)</failure>
+<testsuites name="jest tests" tests="36" failures="0" errors="0" time="17.659">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="9.834" tests="2">
+    <testcase classname=" should pass" name=" should pass" time="0.004">
     </testcase>
-    <testcase classname="CustomResourceMigrator - End to End should migrate multiple custom resources" name="CustomResourceMigrator - End to End should migrate multiple custom resources" time="0">
-      <skipped/>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="9.963" tests="2">
+    <testcase classname=" should pass" name=" should pass" time="0.004">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.63" tests="3">
+    <testcase classname=" should pass" name=" should pass" time="0.004">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
+    </testcase>
+    <testcase classname="CFNConditionResolver should resolve the conditions in the template" name="CFNConditionResolver should resolve the conditions in the template" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.628" tests="4">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="CFNParameterResolver should resolve parameters in template" name="CFNParameterResolver should resolve parameters in template" time="0">
+    </testcase>
+    <testcase classname="CFNParameterResolver should not resolve when no parameters are present" name="CFNParameterResolver should not resolve when no parameters are present" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.692" tests="3">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="CFNDependencyResolver should resolve dependencies" name="CFNDependencyResolver should resolve dependencies" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="12.673" tests="4">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="CFNOutputResolver should resolve output references" name="CFNOutputResolver should resolve output references" time="0.002">
+    </testcase>
+    <testcase classname="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" name="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" time="0.005">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="12.654" tests="4">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="OAuthValuesRetriever should fail if the oauth param is not an array" name="OAuthValuesRetriever should fail if the oauth param is not an array" time="0.008">
+    </testcase>
+    <testcase classname="OAuthValuesRetriever should fail if the oauth param does not have provider info" name="OAuthValuesRetriever should fail if the oauth param does not have provider info" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="14.822" tests="4">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" name="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" time="0.005">
+    </testcase>
+    <testcase classname="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully, skipping categories that have already been updated previously" name="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully, skipping categories that have already been updated previously" time="0.001">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="14.825" tests="10">
+    <testcase classname=" should pass" name=" should pass" time="0.003">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should preprocess gen1 template prior to refactor" name="CategoryTemplateGenerator should preprocess gen1 template prior to refactor" time="0.003">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should preprocess gen1 template with predicate prior to refactor" name="CategoryTemplateGenerator should preprocess gen1 template with predicate prior to refactor" time="0.001">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should remove gen2 resources from gen2 stack prior to refactor" name="CategoryTemplateGenerator should remove gen2 resources from gen2 stack prior to refactor" time="0">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should refactor gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor gen1 resources into gen2 stack" time="0.001">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" time="0">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" name="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" time="0.002">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should throw error when there are no resources to move in Gen2 stack" name="CategoryTemplateGenerator should throw error when there are no resources to move in Gen2 stack" time="0.001">
+    </testcase>
+    <testcase classname="CategoryTemplateGenerator should refactor DynamoDB gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor DynamoDB gen1 resources into gen2 stack" time="0">
     </testcase>
   </testsuite>
 </testsuites>
