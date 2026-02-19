@@ -1,74 +1,82 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="jest tests" tests="36" failures="0" errors="0" time="17.659">
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="9.834" tests="2">
-    <testcase classname=" should pass" name=" should pass" time="0.004">
-    </testcase>
-    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
-    </testcase>
-  </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="9.963" tests="2">
-    <testcase classname=" should pass" name=" should pass" time="0.004">
+<testsuites name="jest tests" tests="40" failures="0" errors="0" time="15.397">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="9.497" tests="2">
+    <testcase classname=" should pass" name=" should pass" time="0.011">
     </testcase>
     <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.63" tests="3">
-    <testcase classname=" should pass" name=" should pass" time="0.004">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="9.762" tests="2">
+    <testcase classname=" should pass" name=" should pass" time="0.005">
     </testcase>
-    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
-    </testcase>
-    <testcase classname="CFNConditionResolver should resolve the conditions in the template" name="CFNConditionResolver should resolve the conditions in the template" time="0">
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.628" tests="4">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="10.049" tests="3">
+    <testcase classname=" should pass" name=" should pass" time="0.004">
+    </testcase>
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    </testcase>
+    <testcase classname="CFNDependencyResolver should resolve dependencies" name="CFNDependencyResolver should resolve dependencies" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="10.054" tests="4">
     <testcase classname=" should pass" name=" should pass" time="0.003">
     </testcase>
-    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
     </testcase>
     <testcase classname="CFNParameterResolver should resolve parameters in template" name="CFNParameterResolver should resolve parameters in template" time="0">
     </testcase>
     <testcase classname="CFNParameterResolver should not resolve when no parameters are present" name="CFNParameterResolver should not resolve when no parameters are present" time="0">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="10.692" tests="3">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="10.393" tests="4">
     <testcase classname=" should pass" name=" should pass" time="0.003">
     </testcase>
     <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
     </testcase>
-    <testcase classname="CFNDependencyResolver should resolve dependencies" name="CFNDependencyResolver should resolve dependencies" time="0.001">
+    <testcase classname="CFNOutputResolver should resolve output references" name="CFNOutputResolver should resolve output references" time="0.001">
+    </testcase>
+    <testcase classname="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" name="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" time="0.006">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="12.673" tests="4">
-    <testcase classname=" should pass" name=" should pass" time="0.003">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="10.701" tests="3">
+    <testcase classname=" should pass" name=" should pass" time="0.005">
     </testcase>
-    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
+    <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0.001">
     </testcase>
-    <testcase classname="CFNOutputResolver should resolve output references" name="CFNOutputResolver should resolve output references" time="0.002">
-    </testcase>
-    <testcase classname="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" name="CFNOutputResolver should throw error when Kinesis ARN is not exposed in outputs" time="0.005">
+    <testcase classname="CFNConditionResolver should resolve the conditions in the template" name="CFNConditionResolver should resolve the conditions in the template" time="0.001">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="12.654" tests="4">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="10.98" tests="4">
     <testcase classname=" should pass" name=" should pass" time="0.003">
     </testcase>
     <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
     </testcase>
     <testcase classname="OAuthValuesRetriever should fail if the oauth param is not an array" name="OAuthValuesRetriever should fail if the oauth param is not an array" time="0.008">
     </testcase>
-    <testcase classname="OAuthValuesRetriever should fail if the oauth param does not have provider info" name="OAuthValuesRetriever should fail if the oauth param does not have provider info" time="0">
+    <testcase classname="OAuthValuesRetriever should fail if the oauth param does not have provider info" name="OAuthValuesRetriever should fail if the oauth param does not have provider info" time="0.001">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="14.822" tests="4">
-    <testcase classname=" should pass" name=" should pass" time="0.003">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="12.153" tests="8">
+    <testcase classname=" should pass" name=" should pass" time="0.002">
     </testcase>
     <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
     </testcase>
-    <testcase classname="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" name="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" time="0.005">
+    <testcase classname="TemplateGenerator should refactor selected categories from Gen1 to Gen2 successfully" name="TemplateGenerator should refactor selected categories from Gen1 to Gen2 successfully" time="0.003">
+    </testcase>
+    <testcase classname="TemplateGenerator should skip categories that have already been refactored when using generateSelectedCategories" name="TemplateGenerator should skip categories that have already been refactored when using generateSelectedCategories" time="0.001">
+    </testcase>
+    <testcase classname="TemplateGenerator should throw when no applicable destination category exists during initializeForAssessment" name="TemplateGenerator should throw when no applicable destination category exists during initializeForAssessment" time="0.002">
+    </testcase>
+    <testcase classname="TemplateGenerator should return false and rollback gen2 stack when stack refactor fails" name="TemplateGenerator should return false and rollback gen2 stack when stack refactor fails" time="0.001">
+    </testcase>
+    <testcase classname="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" name="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully" time="0.002">
     </testcase>
     <testcase classname="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully, skipping categories that have already been updated previously" name="TemplateGenerator should rollback resources from Gen2 to Gen1 successfully, skipping categories that have already been updated previously" time="0.001">
     </testcase>
   </testsuite>
-  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:38:09" time="14.825" tests="10">
+  <testsuite name="undefined" errors="0" failures="0" skipped="0" timestamp="2026-02-19T22:47:08" time="12.156" tests="10">
     <testcase classname=" should pass" name=" should pass" time="0.003">
     </testcase>
     <testcase classname=" sets up toBeACloudFormationCommand" name=" sets up toBeACloudFormationCommand" time="0">
@@ -81,9 +89,9 @@
     </testcase>
     <testcase classname="CategoryTemplateGenerator should refactor gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor gen1 resources into gen2 stack" time="0.001">
     </testcase>
-    <testcase classname="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" time="0">
+    <testcase classname="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" name="CategoryTemplateGenerator should refactor auth gen1 resources into gen2 stack" time="0.001">
     </testcase>
-    <testcase classname="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" name="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" time="0.002">
+    <testcase classname="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" name="CategoryTemplateGenerator should throw error when there are no resources to move in Gen1 stack" time="0.001">
     </testcase>
     <testcase classname="CategoryTemplateGenerator should throw error when there are no resources to move in Gen2 stack" name="CategoryTemplateGenerator should throw error when there are no resources to move in Gen2 stack" time="0.001">
     </testcase>

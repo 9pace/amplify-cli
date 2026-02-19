@@ -1,6 +1,5 @@
 import { CloudFormationClient, DescribeStacksCommand, Parameter, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
 import { CFNTemplate } from './types';
-import assert from 'node:assert';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 120;
@@ -62,9 +61,19 @@ export async function pollStackForCompletionState(
       }),
     );
     const stack = Stacks?.[0];
-    assert(stack);
+    if (!stack) {
+      throw new AmplifyError('DeploymentError', {
+        message: `Stack '${stackName}' not found in DescribeStacks response.`,
+        resolution: `Verify the stack '${stackName}' exists in your AWS account and region.`,
+      });
+    }
     const stackStatus = stack.StackStatus;
-    assert(stackStatus);
+    if (!stackStatus) {
+      throw new AmplifyError('DeploymentError', {
+        message: `Stack '${stackName}' has no status.`,
+        resolution: `Check the CloudFormation console for stack '${stackName}' to see its current state.`,
+      });
+    }
     if (stackStatus?.endsWith(COMPLETION_STATE)) {
       return stackStatus;
     }

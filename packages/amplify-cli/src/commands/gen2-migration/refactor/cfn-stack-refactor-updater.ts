@@ -8,7 +8,6 @@ import {
   StackRefactorExecutionStatus,
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
-import assert from 'node:assert';
 import { CFNStackStatus, FailedRefactorResponse } from './types';
 import { pollStackForCompletionState } from './cfn-stack-updater';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
@@ -22,7 +21,7 @@ export const UPDATE_COMPLETE = 'UPDATE_COMPLETE';
  * Refactors a stack with given source and destination template.
  * @param cfnClient
  * @param createStackRefactorCommandInput
- * @param attempts number of attempts to poll CFN stack for update completion state. The interval between the polls is 1.5 seconds.
+ * @param attempts number of attempts to poll CFN stack for update completion state. The interval between the polls is 12 seconds.
  * @returns a tuple containing the success/failed state and the reason if any.
  */
 export async function tryRefactorStack(
@@ -31,12 +30,17 @@ export async function tryRefactorStack(
   attempts = POLL_ATTEMPTS,
 ): Promise<[boolean, FailedRefactorResponse | undefined]> {
   const { StackRefactorId } = await cfnClient.send(new CreateStackRefactorCommand(createStackRefactorCommandInput));
-  assert(StackRefactorId);
+  if (!StackRefactorId) {
+    throw new AmplifyError('DeploymentError', {
+      message: 'CreateStackRefactor did not return a StackRefactorId.',
+      resolution: 'Retry the operation. If the problem persists, check the CloudFormation console for errors.',
+    });
+  }
   let describeStackRefactorResponse = await pollStackRefactorForCompletionState(
     cfnClient,
     StackRefactorId,
     (_describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
-      assert(_describeStackRefactorResponse.Status);
+      if (!_describeStackRefactorResponse.Status) return false;
       return (
         _describeStackRefactorResponse.Status.endsWith(COMPLETION_STATE) || _describeStackRefactorResponse.Status.endsWith(FAILED_STATE)
       );
@@ -62,7 +66,7 @@ export async function tryRefactorStack(
     cfnClient,
     StackRefactorId,
     (describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
-      assert(describeStackRefactorResponse.ExecutionStatus);
+      if (!describeStackRefactorResponse.ExecutionStatus) return false;
       return (
         describeStackRefactorResponse.ExecutionStatus.endsWith(COMPLETION_STATE) ||
         describeStackRefactorResponse.ExecutionStatus.endsWith(FAILED_STATE)
@@ -83,12 +87,26 @@ export async function tryRefactorStack(
 
   const sourceStackName = createStackRefactorCommandInput.StackDefinitions?.[0].StackName;
   const destinationStackName = createStackRefactorCommandInput.StackDefinitions?.[1].StackName;
-  assert(sourceStackName);
-  assert(destinationStackName);
+  if (!sourceStackName || !destinationStackName) {
+    throw new AmplifyError('DeploymentError', {
+      message: 'Stack refactor input is missing source or destination stack name.',
+      resolution: 'This is an internal error. Please report it with the full command output.',
+    });
+  }
   const sourceStackStatus = await pollStackForCompletionState(cfnClient, sourceStackName);
-  assert(sourceStackStatus === CFNStackStatus.UPDATE_COMPLETE, `${sourceStackName} was not updated successfully.`);
+  if (sourceStackStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+    throw new AmplifyError('DeploymentError', {
+      message: `${sourceStackName} was not updated successfully. Status: ${sourceStackStatus}`,
+      resolution: `Check the CloudFormation console for stack '${sourceStackName}' to see failure details.`,
+    });
+  }
   const destinationStackStatus = await pollStackForCompletionState(cfnClient, destinationStackName);
-  assert(destinationStackStatus === CFNStackStatus.UPDATE_COMPLETE, `${destinationStackName} was not updated successfully.`);
+  if (destinationStackStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+    throw new AmplifyError('DeploymentError', {
+      message: `${destinationStackName} was not updated successfully. Status: ${destinationStackStatus}`,
+      resolution: `Check the CloudFormation console for stack '${destinationStackName}' to see failure details.`,
+    });
+  }
 
   return [true, undefined];
 }
