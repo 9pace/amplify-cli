@@ -28,6 +28,13 @@ interface ResourceMapping {
 // Constants
 const FILE_PROTOCOL_PREFIX = 'file://';
 
+const createAccountIdError = () =>
+  new AmplifyError('ConfigurationError', {
+    message: 'Unable to determine AWS account ID',
+    resolution:
+      'Verify your AWS credentials are configured and have permission to call sts:GetCallerIdentity. Run "aws sts get-caller-identity" to test.',
+  });
+
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   private toStack?: string;
   private resourceMappings?: string;
@@ -220,7 +227,10 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       await this.emitUsageAnalytics(this.currentEnvName, true);
     } else {
       await this.emitUsageAnalytics(this.currentEnvName, false);
-      throw new Error('Failed to execute CloudFormation stack refactor');
+      throw new AmplifyError('DeploymentError', {
+        message: 'Failed to execute CloudFormation stack refactor',
+        resolution: 'Check the CloudFormation console for details on the failed stack refactor operation.',
+      });
     }
   }
 
@@ -345,7 +355,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     const accountId = callerIdentityResult.Account;
 
     if (!accountId) {
-      throw new Error('Unable to determine AWS account ID');
+      throw createAccountIdError();
     }
 
     // Create AWS service clients
@@ -375,7 +385,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     const accountId = callerIdentityResult.Account;
 
     if (!accountId) {
-      throw new Error('Unable to determine AWS account ID');
+      throw createAccountIdError();
     }
 
     const cfnClient = new CloudFormationClient({});

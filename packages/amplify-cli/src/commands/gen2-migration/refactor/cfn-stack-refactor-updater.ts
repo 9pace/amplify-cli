@@ -11,6 +11,7 @@ import {
 import assert from 'node:assert';
 import { CFNStackStatus, FailedRefactorResponse } from './types';
 import { pollStackForCompletionState } from './cfn-stack-updater';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 12000;
@@ -118,5 +119,8 @@ async function pollStackRefactorForCompletionState(
     await new Promise((res) => setTimeout(() => res(''), POLL_INTERVAL_MS));
     attempts--;
   } while (attempts > 0);
-  throw new Error(`Stack refactor ${stackRefactorId} did not reach a completion state within the given time period.`);
+  throw new AmplifyError('DeploymentError', {
+    message: `Stack refactor ${stackRefactorId} did not reach a completion state within the given time period.`,
+    resolution: `Check the CloudFormation console for stack refactor '${stackRefactorId}' to see the current status and any failure reasons. If the operation is still in progress, re-run the command after it completes.`,
+  });
 }

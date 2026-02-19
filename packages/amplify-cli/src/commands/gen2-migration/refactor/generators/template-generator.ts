@@ -30,6 +30,7 @@ import CfnOutputResolver from '../resolvers/cfn-output-resolver';
 import CfnDependencyResolver from '../resolvers/cfn-dependency-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
 import { Logger } from '../../../gen2-migration';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const CFN_RESOURCE_STACK_TYPE = 'AWS::CloudFormation::Stack';
 const GEN2_AMPLIFY_AUTH_LOGICAL_ID_PREFIX = 'amplifyAuth';
@@ -237,7 +238,10 @@ class TemplateGenerator {
         ({ LogicalResourceId: destinationLogicalResourceId }) => destinationLogicalResourceId?.startsWith(category),
       );
       if (!correspondingCategoryStackInDestination) {
-        throw new Error(`No corresponding category found in destination stack for ${category} category`);
+        throw new AmplifyError('StackStateError', {
+          message: `No corresponding category found in destination stack for ${category} category`,
+          resolution: 'Ensure your Gen2 stack has the corresponding category resources deployed before running the migration.',
+        });
       }
       destinationPhysicalResourceId = correspondingCategoryStackInDestination.PhysicalResourceId;
 

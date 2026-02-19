@@ -1,6 +1,7 @@
 import { AWS_RESOURCE_ATTRIBUTES, CFN_RESOURCE_TYPES, CFNTemplate } from '../types';
 import assert from 'node:assert';
 import { Output, StackResource } from '@aws-sdk/client-cloudformation';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const REF = 'Ref';
 const GET_ATT = 'Fn::GetAtt';
@@ -102,11 +103,11 @@ class CfnOutputResolver {
             groups.AttributeName === 'Arn' &&
             !stackResourcePhysicalId.startsWith('arn:aws:kinesis')
           ) {
-            throw new Error(
-              `Kinesis stream ARN must be exposed in CloudFormation outputs. ` +
-                `Found physical resource ID '${stackResourcePhysicalId}' for logical resource '${groups.LogicalResourceId}' which is not a valid ARN. ` +
-                `Please add an output with Fn::GetAtt for the Kinesis stream's Arn attribute.`,
-            );
+            throw new AmplifyError('CloudFormationTemplateError', {
+              message: `Kinesis stream physical resource ID '${stackResourcePhysicalId}' for logical resource '${groups.LogicalResourceId}' is not a valid ARN.`,
+              resolution:
+                'Add a CloudFormation output with Fn::GetAtt for the Kinesis stream Arn attribute so the migration can resolve the resource ARN.',
+            });
           }
 
           if (groups.AttributeName === 'Arn') {

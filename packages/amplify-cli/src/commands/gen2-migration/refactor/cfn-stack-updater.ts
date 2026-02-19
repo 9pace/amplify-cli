@@ -1,6 +1,7 @@
 import { CloudFormationClient, DescribeStacksCommand, Parameter, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
 import { CFNTemplate } from './types';
 import assert from 'node:assert';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 120;
 const POLL_INTERVAL_MS = 5 * 1000;
@@ -70,5 +71,8 @@ export async function pollStackForCompletionState(
     await new Promise((res) => setTimeout(() => res(''), POLL_INTERVAL_MS));
     attempts--;
   } while (attempts > 0);
-  throw new Error(`Stack ${stackName} did not reach a completion state within the given time period.`);
+  throw new AmplifyError('DeploymentError', {
+    message: `Stack ${stackName} did not reach a completion state within the given time period.`,
+    resolution: `Check the CloudFormation console for stack '${stackName}' to see the current status and any failure reasons. If the stack is still in progress, re-run the command after it completes.`,
+  });
 }

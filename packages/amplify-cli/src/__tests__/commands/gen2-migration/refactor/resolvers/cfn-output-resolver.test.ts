@@ -602,10 +602,6 @@ describe('CFNOutputResolver', () => {
           },
         ],
       ),
-    ).toThrow(
-      `Kinesis stream ARN must be exposed in CloudFormation outputs. ` +
-        `Found physical resource ID 'MyKinesisStream' for logical resource 'MyKinesisStream' which is not a valid ARN. ` +
-        `Please add an output with Fn::GetAtt for the Kinesis stream's Arn attribute.`,
-    );
+    ).toThrow(`Kinesis stream physical resource ID 'MyKinesisStream' for logical resource 'MyKinesisStream' is not a valid ARN.`);
   });
 });

@@ -3,6 +3,7 @@ import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient, DescribeIdentityProviderCommand } from '@aws-sdk/client-cognito-identity-provider';
 import { Parameter } from '@aws-sdk/client-cloudformation';
 import { HostedUIProviderMeta, OAuthClient } from './types';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR = 'Invalid Gen1 OAuth provider metadata';
 
@@ -44,13 +45,19 @@ const retrieveOAuthValues = async ({
   assert(value);
   const parsedValue = JSON.parse(value);
   if (!Array.isArray(parsedValue) || parsedValue.length === 0) {
-    throw new Error(INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR);
+    throw new AmplifyError('InputValidationError', {
+      message: INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR,
+      resolution: 'Verify your Gen1 hostedUIProviderMeta parameter contains a valid JSON array of OAuth provider configurations.',
+    });
   }
 
   const oAuthClientValues: OAuthClient[] = [];
   for (const provider of parsedValue) {
     if (!isHostedProviderMetadata(provider)) {
-      throw new Error(INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR);
+      throw new AmplifyError('InputValidationError', {
+        message: INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR,
+        resolution: 'Each OAuth provider entry must include a ProviderName field. Check your Gen1 hostedUIProviderMeta parameter.',
+      });
     }
 
     const { ProviderName } = provider;
