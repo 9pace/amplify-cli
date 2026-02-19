@@ -2,28 +2,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { AmplifyMigrationStep } from '../_step';
 import { AmplifyMigrationOperation } from '../_operation';
-import { prompter } from '@aws-amplify/amplify-prompts';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 import fs from 'fs-extra';
 import { CloudFormationClient } from '@aws-sdk/client-cloudformation';
+import { ResourceMapping } from './types';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { AmplifyGen2MigrationValidations } from '../_validations';
 import { DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { TemplateGenerator } from './generators/template-generator';
-
-// Resource mapping interface (copied from migrate-template-gen)
-interface ResourceMapping {
-  Source: {
-    StackName: string;
-    LogicalResourceId: string;
-  };
-  Destination: {
-    StackName: string;
-    LogicalResourceId: string;
-  };
-}
 
 // Constants
 const FILE_PROTOCOL_PREFIX = 'file://';
@@ -234,13 +222,10 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     }
   }
 
-  // Interactive category assessment and selection
   private async assessAndSelectCategories(templateGenerator: TemplateGenerator): Promise<string[]> {
     this.logger.info('');
     this.logger.info('🔍 Assessing available resources for migration...');
 
-    // Assess each category for available resources
-    // Checks the gen1 templates for what resources
     const categoryAssessments = await this.assessCategoryResources(templateGenerator);
 
     if (categoryAssessments.length === 0) {
@@ -266,31 +251,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       this.logger.info('');
     }
 
-    // Migrate all categories selection
-    const availableCategories = categoryAssessments.map((a) => a.category);
-    const selectionChoice = 'Migrate all categories';
-    if (selectionChoice === 'Migrate all categories') {
-      return availableCategories;
-    }
-
-    // Individual category selection
-    const selectedCategories: string[] = [];
-    for (const assessment of categoryAssessments) {
-      const { category, resourceCount } = assessment;
-      const shouldMigrate = await prompter.yesOrNo(`Migrate ${category} category? (${resourceCount} resources)`, true);
-
-      if (shouldMigrate) {
-        selectedCategories.push(category);
-      }
-    }
-
-    if (selectedCategories.length === 0) {
-      this.logger.info('ℹ️  No categories selected.');
-      return [];
-    }
-
-    this.logger.info(`✅ Selected categories: ${selectedCategories.join(', ')}`);
-    return selectedCategories;
+    return categoryAssessments.map((a) => a.category);
   }
 
   // Add all resources that match the categoryGeneratorConfig filters to assesments
