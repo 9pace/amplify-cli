@@ -93,7 +93,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   }
 
   private async executeRollback(): Promise<void> {
-    const templateGenerator = await this.initializeTemplateGeneratorForRollback();
+    const templateGenerator = await this.initializeTemplateGenerator('rollback');
     this.logger.info('🔧 Executing CloudFormation stack rollback...');
     await templateGenerator.rollback();
     await this.emitUsageAnalytics(this.currentEnvName, true);
@@ -191,7 +191,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
 
   private async executeStackRefactor(): Promise<void> {
     // Initialize template generator and clients
-    const templateGenerator = await this.initializeTemplateGenerator();
+    const templateGenerator = await this.initializeTemplateGenerator('forward');
 
     // Initialize template generator (parse category stacks for assessment)
     // Populates _categoryStackMap with: category → [sourceStackId, destinationStackId]
@@ -309,38 +309,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     return assessments;
   }
 
-  private async initializeTemplateGenerator(): Promise<TemplateGenerator> {
-    // Get AWS account ID
-    const stsClient = new STSClient({});
-    const callerIdentityResult = await stsClient.send(new GetCallerIdentityCommand({}));
-    const accountId = callerIdentityResult.Account;
-
-    if (!accountId) {
-      throw createAccountIdError();
-    }
-
-    // Create AWS service clients
-    const cfnClient = new CloudFormationClient({});
-    const ssmClient = new SSMClient({});
-    const cognitoIdpClient = new CognitoIdentityProviderClient({});
-
-    // Create template generator using the real TemplateGenerator implementation
-    return new TemplateGenerator(
-      this.rootStackName,
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      this.toStack!,
-      accountId,
-      cfnClient,
-      ssmClient,
-      cognitoIdpClient,
-      this.appId,
-      this.currentEnvName,
-      this.logger,
-      this.region,
-    );
-  }
-
-  private async initializeTemplateGeneratorForRollback(): Promise<TemplateGenerator> {
+  private async initializeTemplateGenerator(direction: 'forward' | 'rollback'): Promise<TemplateGenerator> {
     const stsClient = new STSClient({});
     const callerIdentityResult = await stsClient.send(new GetCallerIdentityCommand({}));
     const accountId = callerIdentityResult.Account;
@@ -353,10 +322,13 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     const ssmClient = new SSMClient({});
     const cognitoIdpClient = new CognitoIdentityProviderClient({});
 
-    // For rollback: Gen2 (toStack) is source, Gen1 (rootStackName) is destination
+    // toStack is guaranteed set by extractParameters() which runs before this method
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const [fromStack, toStack] = direction === 'forward' ? [this.rootStackName, this.toStack!] : [this.toStack!, this.rootStackName];
+
     return new TemplateGenerator(
-      this.toStack!,
-      this.rootStackName,
+      fromStack,
+      toStack,
       accountId,
       cfnClient,
       ssmClient,
