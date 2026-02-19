@@ -182,19 +182,6 @@ class TemplateGenerator {
     }
   }
 
-  // this function never gets used... I think its best to remove it.
-  // TODO: Remove the following generate function from here and in tests.
-  public async generate(customResourceMap?: ResourceMapping[]) {
-    await fs.mkdir(TEMPLATES_DIR, { recursive: true });
-    await this.parseCategoryStacks();
-    if (customResourceMap) {
-      for (const { Source, Destination } of customResourceMap) {
-        this.updateCategoryStackMap(Source.LogicalResourceId, Source.StackName, Destination.StackName, false, false);
-      }
-    }
-    return await this.generateCategoryTemplates(false, customResourceMap);
-  }
-
   public async rollback() {
     await this.parseCategoryStacks(true);
     return await this.generateCategoryTemplates(true);
