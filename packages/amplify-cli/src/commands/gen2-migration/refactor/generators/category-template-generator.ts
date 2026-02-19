@@ -70,7 +70,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
    * be removed would break the stack.
    */
   public async generateGen1PreProcessTemplate(): Promise<CFNChangeTemplateWithParams> {
-    this.logger.debug('generateGen1PreProcessTemplate: Starting Gen1 pre-process template generation');
     this.logger.debug(`Gen1 Stack ID: ${this.gen1StackId}`);
 
     this.gen1DescribeStacksResponse = await this.describeStack(this.gen1StackId);
@@ -78,9 +77,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     const { Parameters, Outputs } = this.gen1DescribeStacksResponse;
     assert(Parameters);
     assert(Outputs);
-    this.logger.debug(`Gen1 Stack Parameters count: ${Parameters.length}`);
     this.logger.debug(`Gen1 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
-    this.logger.debug(`Gen1 Stack Outputs count: ${Outputs.length}`);
     this.logger.debug(`Gen1 Stack Outputs: ${JSON.stringify(Outputs, null, 2)}`);
 
     const oldGen1Template = await this.readTemplate(this.gen1StackId);
@@ -94,8 +91,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }),
     );
     this.logger.debug(`Gen1 Resources to move: ${Array.from(this.gen1ResourcesToMove.keys())}`);
-    this.logger.debug(`Gen1 Resources to move count: ${this.gen1ResourcesToMove.size}`);
-    this.logger.debug('Gen1 Resources to move details:');
     for (const [logicalId, resource] of this.gen1ResourcesToMove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
@@ -107,7 +102,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     if (this.gen1ResourcesToMove.size === 0) throw new Error('No resources to move in Gen1 stack.');
     const logicalResourceIds = [...this.gen1ResourcesToMove.keys()];
 
-    this.logger.debug('Resolving Gen1 parameters...');
     const gen1ParametersResolvedTemplate = new CfnParameterResolver(oldGen1Template, extractStackNameFromId(this.gen1StackId)).resolve(
       Parameters,
     );
@@ -116,17 +110,14 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     const stackResources = await this.describeStackResources(this.gen1StackId);
     this.logger.debug(`Gen1 Stack Resources count: ${stackResources.length}`);
 
-    this.logger.debug('Resolving Gen1 outputs...');
     const gen1TemplateWithOutputsResolved = new CfnOutputResolver(gen1ParametersResolvedTemplate, this.region, this.accountId).resolve(
       logicalResourceIds,
       Outputs,
       stackResources,
     );
 
-    this.logger.debug('Resolving Gen1 dependencies...');
     const gen1TemplateWithDepsResolved = new CfnDependencyResolver(gen1TemplateWithOutputsResolved).resolve(logicalResourceIds);
 
-    this.logger.debug('Resolving Gen1 conditions...');
     const gen1TemplateWithConditionsResolved = new CFNConditionResolver(gen1TemplateWithDepsResolved).resolve(Parameters);
 
     // CloudFormation requires at least one resource in a stack.
@@ -166,7 +157,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   public async generateGen2ResourceRemovalTemplate(): Promise<CFNChangeTemplateWithParams> {
-    this.logger.debug('generateGen2ResourceRemovalTemplate: Starting Gen2 resource removal template generation');
     this.logger.debug(`Gen2 Stack ID: ${this.gen2StackId}`);
 
     this.gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
@@ -174,11 +164,9 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     const { Parameters, Outputs } = this.gen2DescribeStacksResponse;
     assert(Outputs);
     this.gen2StackParameters = Parameters;
-    this.logger.debug(`Gen2 Stack Parameters count: ${Parameters?.length ?? 0}`);
     if (Parameters) {
       this.logger.debug(`Gen2 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
     }
-    this.logger.debug(`Gen2 Stack Outputs count: ${Outputs.length}`);
     this.logger.debug(`Gen2 Stack Outputs: ${JSON.stringify(Outputs, null, 2)}`);
 
     const oldGen2Template = await this.readTemplate(this.gen2StackId);
@@ -194,8 +182,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }),
     );
     this.logger.debug(`Gen2 Resources to remove: ${Array.from(this.gen2ResourcesToRemove.keys())}`);
-    this.logger.debug(`Gen2 Resources to remove count: ${this.gen2ResourcesToRemove.size}`);
-    this.logger.debug('Gen2 Resources to remove details:');
     for (const [logicalId, resource] of this.gen2ResourcesToRemove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
@@ -207,7 +193,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     if (this.gen2ResourcesToRemove.size === 0) throw new Error('No resources to remove in Gen2 stack.');
     const logicalResourceIds = [...this.gen2ResourcesToRemove.keys()];
 
-    this.logger.debug('Removing Gen2 resources from Gen2 stack...');
     const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);
     return {
       oldTemplate: oldGen2Template,
@@ -254,12 +239,10 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   private removeGen1ResourcesFromGen1Stack(gen1Template: CFNTemplate, resourcesToRefactor: string[]) {
-    this.logger.debug('removeGen1ResourcesFromGen1Stack: Removing resources from Gen1 stack');
-    this.logger.debug(`Resources to remove: ${resourcesToRefactor}`);
+    this.logger.debug(`Removing Gen1 resources: ${resourcesToRefactor}`);
     const resources = gen1Template.Resources;
     assert(resources);
     for (const resourceToRefactor of resourcesToRefactor) {
-      this.logger.debug(`Removing resource: ${resourceToRefactor}`);
       delete resources[resourceToRefactor];
     }
     this.logger.debug(`Gen1 template resources remaining: ${Object.keys(resources).length}`);
@@ -272,7 +255,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     gen1ToGen2ResourceLogicalIdMapping: Map<string, string>,
     gen2Template: CFNTemplate,
   ) {
-    this.logger.debug('addGen1ResourcesToGen2Stack: Adding Gen1 resources to Gen2 stack');
     this.logger.debug(`Resources to add: ${resourcesToRefactor}`);
     this.logger.debug(`Resource mapping: ${Array.from(gen1ToGen2ResourceLogicalIdMapping.entries())}`);
     const resources = gen2Template.Resources;
@@ -285,7 +267,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       // replace Gen1 dependency with Gen2 counterparts for Gen1 resources being moved over to Gen2
       const dependencies = resources[gen2ResourceLogicalId].DependsOn;
       if (!dependencies) {
-        this.logger.debug(` No dependencies for resource: ${gen2ResourceLogicalId}`);
         continue;
       }
       this.logger.debug(` Original dependencies for ${gen2ResourceLogicalId}: ${dependencies}`);
@@ -297,7 +278,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
           this.logger.debug(` Mapping dependency: ${dependency} -> ${gen2DependencyName}`);
           return gen2DependencyName;
         } else {
-          this.logger.debug(` Keeping dependency unchanged: ${dependency}`);
           return dependency;
         }
       });
@@ -308,19 +288,14 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   private buildGen1ToGen2ResourceLogicalIdMapping(gen1ResourceMap: Map<string, CFNResource>, gen2ResourceMap: Map<string, CFNResource>) {
-    this.logger.debug('buildGen1ToGen2ResourceLogicalIdMapping: Building resource mapping');
-    this.logger.debug(`Gen1 resources: ${Array.from(gen1ResourceMap.keys())}`);
-    this.logger.debug(`Gen2 resources: ${Array.from(gen2ResourceMap.keys())}`);
     const clonedGen1ResourceMap = new Map(gen1ResourceMap);
     const clonedGen2ResourceMap = new Map(gen2ResourceMap);
     const gen1ToGen2ResourceLogicalIdMapping = new Map<string, string>();
     for (const [gen1ResourceLogicalId, gen1Resource] of clonedGen1ResourceMap) {
-      this.logger.debug(`[DEBUG] Processing Gen1 resource: ${gen1ResourceLogicalId} (Type: ${gen1Resource.Type})`);
       for (const [gen2ResourceLogicalId, gen2Resource] of clonedGen2ResourceMap) {
         if (gen2Resource.Type !== gen1Resource.Type) {
           continue;
         }
-        this.logger.debug(`[DEBUG] Checking Gen2 resource: ${gen2ResourceLogicalId} (Type: ${gen2Resource.Type})`);
         // Since we have 2 app clients, we want to map the corresponding app clients (Web->Web, Native->Native)
         // In gen1, we differentiate clients with Web. In gen2, we differentiate with Native.
         const isWebClient = gen1ResourceLogicalId === GEN1_WEB_APP_CLIENT && !gen2ResourceLogicalId.includes(GEN2_NATIVE_APP_CLIENT);
@@ -350,30 +325,24 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   private async removeGen2ResourcesFromGen2Stack(gen2Template: CFNTemplate, resourcesToRemove: string[]) {
-    this.logger.debug('removeGen2ResourcesFromGen2Stack: Removing Gen2 resources from Gen2 stack');
-    this.logger.debug(`Resources to remove: ${resourcesToRemove}`);
+    this.logger.debug(`Gen2 resources to remove from stack: ${resourcesToRemove}`);
     const clonedGen2Template = JSON.parse(JSON.stringify(gen2Template));
     const stackOutputs = this.gen2DescribeStacksResponse?.Outputs;
     assert(stackOutputs);
-    this.logger.debug(`Stack outputs count: ${stackOutputs.length}`);
 
     this.logger.debug('Describing Gen2 stack resources...');
     const stackResources = await this.describeStackResources(this.gen2StackId);
     this.logger.debug(`Gen2 Stack Resources count: ${stackResources.length}`);
 
-    this.logger.debug('Resolving Gen2 dependencies...');
     const gen2TemplateWithDepsResolved = new CfnDependencyResolver(clonedGen2Template).resolve(resourcesToRemove);
 
-    this.logger.debug('Resolving Gen2 output references...');
     const resolvedRefsGen2Template = new CfnOutputResolver(gen2TemplateWithDepsResolved, this.region, this.accountId).resolve(
       resourcesToRemove,
       stackOutputs,
       stackResources,
     );
 
-    this.logger.debug('Deleting resources from template...');
     resourcesToRemove.forEach((logicalResourceId) => {
-      this.logger.debug(`Deleting resource: ${logicalResourceId}`);
       delete resolvedRefsGen2Template.Resources[logicalResourceId];
     });
     this.logger.debug(`Gen2 template resources after removal: ${Object.keys(resolvedRefsGen2Template.Resources).length}`);
@@ -387,30 +356,22 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     gen2Template: CFNTemplate,
     sourceToDestinationResourceLogicalIdMapping?: Map<string, string>,
   ): CFNStackRefactorTemplates {
-    this.logger.debug('generateRefactorTemplates: Starting refactor template generation');
     this.logger.debug(`Gen1 resources to move: ${Array.from(gen1ResourcesToMove.keys())}`);
     this.logger.debug(`Gen2 resources to remove: ${Array.from(gen2ResourcesToRemove.keys())}`);
 
     const gen1LogicalResourceIds = [...gen1ResourcesToMove.keys()];
-    this.logger.debug(`Gen1 logical resource IDs: ${gen1LogicalResourceIds}`);
 
     if (sourceToDestinationResourceLogicalIdMapping) {
       this.logger.debug(`Using provided resource mapping: ${Array.from(sourceToDestinationResourceLogicalIdMapping.entries())}`);
-    } else {
-      this.logger.debug('Building resource mapping...');
     }
 
     const gen1ToGen2ResourceLogicalIdMapping =
       sourceToDestinationResourceLogicalIdMapping ??
       this.buildGen1ToGen2ResourceLogicalIdMapping(gen1ResourcesToMove, gen2ResourcesToRemove);
 
-    this.logger.debug('Cloning templates...');
     const clonedGen1Template = JSON.parse(JSON.stringify(gen1Template));
     const clonedGen2Template = JSON.parse(JSON.stringify(gen2Template));
-    this.logger.debug(`Cloned Gen1 template resources: ${Object.keys(clonedGen1Template.Resources).length}`);
-    this.logger.debug(`Cloned Gen2 template resources: ${Object.keys(clonedGen2Template.Resources).length}`);
 
-    this.logger.debug('Adding Gen1 resources to Gen2 stack...');
     const gen2TemplateForRefactor = this.addGen1ResourcesToGen2Stack(
       clonedGen1Template,
       gen1LogicalResourceIds,
@@ -418,10 +379,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       clonedGen2Template,
     );
 
-    this.logger.debug('Removing Gen1 resources from Gen1 stack...');
     const gen1TemplateForRefactor = this.removeGen1ResourcesFromGen1Stack(clonedGen1Template, gen1LogicalResourceIds);
 
-    this.logger.debug('Refactor templates generated successfully');
     this.logger.debug(`Source template resources: ${Object.keys(gen1TemplateForRefactor.Resources).length}`);
     this.logger.debug(`Destination template resources: ${Object.keys(gen2TemplateForRefactor.Resources).length}`);
 
