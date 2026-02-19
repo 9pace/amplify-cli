@@ -75,6 +75,13 @@ const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
 const NO_RESOURCES_TO_MOVE_ERROR = 'No resources to move';
 const NO_RESOURCES_TO_REMOVE_ERROR = 'No resources to remove';
 
+/**
+ * Orchestrates CloudFormation stack refactoring between Gen1 and Gen2 stacks.
+ *
+ * This class follows a pipeline pattern: discover → assess → generate → execute → rollback.
+ * If it crosses 1000 lines or gains methods outside this pipeline flow, revisit decomposition.
+ * See git history for the analysis that deferred the split (KIRO-refactor branch).
+ */
 class TemplateGenerator {
   private _categoryStackMap: Map<CATEGORY, [string, string]>;
   private readonly categoryTemplateGenerators: [CATEGORY, string, string, CategoryTemplateGenerator<CFN_CATEGORY_TYPE>][];
