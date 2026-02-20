@@ -1,6 +1,6 @@
 import { CFN_PSEUDO_PARAMETERS_REF, CFNTemplate, CFNParameter } from '../types';
 import { Parameter } from '@aws-sdk/client-cloudformation';
-import assert from 'node:assert';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 class CfnParameterResolver {
   constructor(private readonly template: CFNTemplate, private readonly stackName: string | undefined = undefined) {}
@@ -24,7 +24,13 @@ class CfnParameterResolver {
       });
     }
     for (const { ParameterKey, ParameterValue } of clonedParameters) {
-      assert(ParameterKey);
+      if (!ParameterKey) {
+        throw new AmplifyError('InvalidStackError', {
+          message: 'CloudFormation returned a stack parameter without a ParameterKey',
+          resolution:
+            'This may indicate a corrupted stack state. Try describing the stack manually with the AWS CLI to verify its parameters.',
+        });
+      }
       if (!ParameterValue) continue;
       const { Type: parameterType, NoEcho } = clonedParametersFromTemplate[ParameterKey];
       if (NoEcho) continue;
