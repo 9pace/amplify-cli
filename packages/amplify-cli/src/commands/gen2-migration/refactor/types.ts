@@ -149,6 +149,9 @@ export enum CFNStackStatus {
   UPDATE_COMPLETE = 'UPDATE_COMPLETE',
 }
 
+export const CFN_TERMINAL_STATE_SUFFIX = '_COMPLETE';
+export const CFN_FAILED_STATE_SUFFIX = '_FAILED';
+
 export type BaseOAuthClient = { ProviderName: string; client_id: string };
 export type OAuthClientWithSecret = BaseOAuthClient & { client_secret: string };
 export type SignInWithAppleOAuthClient = BaseOAuthClient & { team_id: string; key_id: string; private_key: string };

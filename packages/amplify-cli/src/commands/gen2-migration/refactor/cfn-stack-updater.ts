@@ -1,12 +1,11 @@
 import { CloudFormationClient, DescribeStacksCommand, Parameter, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
-import { CFNStackStatus, CFNTemplate } from './types';
+import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFNTemplate } from './types';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 120;
 const POLL_INTERVAL_MS = 5 * 1000;
 const NO_UPDATES_MESSAGE = 'No updates are to be performed';
 const CFN_IAM_CAPABILITY = 'CAPABILITY_NAMED_IAM';
-const COMPLETION_STATE = '_COMPLETE';
 /**
  * Updates a stack with given template. If no updates are present, it no-ops.
  * @param cfnClient
@@ -72,7 +71,7 @@ export async function pollStackForCompletionState(
         resolution: `Check the CloudFormation console for stack '${stackName}' to see its current state.`,
       });
     }
-    if (stackStatus.endsWith(COMPLETION_STATE)) {
+    if (stackStatus.endsWith(CFN_TERMINAL_STATE_SUFFIX)) {
       return stackStatus;
     }
     await new Promise((res) => setTimeout(() => res(''), POLL_INTERVAL_MS));

@@ -8,14 +8,12 @@ import {
   StackRefactorExecutionStatus,
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
-import { CFNStackStatus, FailedRefactorResponse } from './types';
+import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFN_FAILED_STATE_SUFFIX, FailedRefactorResponse } from './types';
 import { pollStackForCompletionState } from './cfn-stack-updater';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 12000;
-const COMPLETION_STATE = '_COMPLETE';
-const FAILED_STATE = '_FAILED';
 /**
  * Refactors a stack with given source and destination template.
  * @param cfnClient
@@ -41,7 +39,8 @@ export async function tryRefactorStack(
     (_describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
       if (!_describeStackRefactorResponse.Status) return false;
       return (
-        _describeStackRefactorResponse.Status.endsWith(COMPLETION_STATE) || _describeStackRefactorResponse.Status.endsWith(FAILED_STATE)
+        _describeStackRefactorResponse.Status.endsWith(CFN_TERMINAL_STATE_SUFFIX) ||
+        _describeStackRefactorResponse.Status.endsWith(CFN_FAILED_STATE_SUFFIX)
       );
     },
     attempts,
@@ -67,8 +66,8 @@ export async function tryRefactorStack(
     (describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
       if (!describeStackRefactorResponse.ExecutionStatus) return false;
       return (
-        describeStackRefactorResponse.ExecutionStatus.endsWith(COMPLETION_STATE) ||
-        describeStackRefactorResponse.ExecutionStatus.endsWith(FAILED_STATE)
+        describeStackRefactorResponse.ExecutionStatus.endsWith(CFN_TERMINAL_STATE_SUFFIX) ||
+        describeStackRefactorResponse.ExecutionStatus.endsWith(CFN_FAILED_STATE_SUFFIX)
       );
     },
     attempts,
