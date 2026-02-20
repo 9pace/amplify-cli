@@ -32,11 +32,19 @@ const HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME = 'hostedUIProviderCreds';
 const USER_POOL_ID_OUTPUT_KEY_NAME = 'UserPoolId';
 const GEN1_WEB_APP_CLIENT = 'UserPoolClientWeb';
 const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
-const RESOURCE_TYPES_WITH_MULTIPLE_RESOURCES = [
-  CFN_AUTH_TYPE.UserPoolClient.valueOf(),
-  CFN_AUTH_TYPE.UserPoolGroup.valueOf(),
-  CFN_IAM_TYPE.Role.valueOf(),
-];
+
+/**
+ * Multi-instance resource types require custom matching logic to pair Gen1 → Gen2 resources.
+ * Single-instance types match by type alone. Adding a new multi-instance type here
+ * forces you to define its matching strategy — omission causes a compile error, not a silent skip.
+ */
+type PairMatchFn = (gen1LogicalId: string, gen2LogicalId: string) => boolean;
+const MULTI_INSTANCE_MATCHERS = new Map<string, PairMatchFn>([
+  // Web↔Web when both conditions true, Native↔Native when both false
+  [CFN_AUTH_TYPE.UserPoolClient, (g1, g2) => (g1 === GEN1_WEB_APP_CLIENT) === !g2.includes(GEN2_NATIVE_APP_CLIENT)],
+  [CFN_AUTH_TYPE.UserPoolGroup, (g1, g2) => g2.includes(g1)],
+  [CFN_IAM_TYPE.Role, (g1, g2) => g2.includes(g1)],
+]);
 
 export interface CategoryTemplateGeneratorConfig {
   logger: Logger;
@@ -398,20 +406,8 @@ class CategoryTemplateGenerator {
         if (gen2Resource.Type !== gen1Resource.Type) {
           continue;
         }
-        // Since we have 2 app clients, we want to map the corresponding app clients (Web->Web, Native->Native)
-        // In gen1, we differentiate clients with Web. In gen2, we differentiate with Native.
-        const isWebClient = gen1ResourceLogicalId === GEN1_WEB_APP_CLIENT && !gen2ResourceLogicalId.includes(GEN2_NATIVE_APP_CLIENT);
-        const isNativeClient = gen1ResourceLogicalId !== GEN1_WEB_APP_CLIENT && gen2ResourceLogicalId.includes(GEN2_NATIVE_APP_CLIENT);
-        const foundUserPoolClientPair = gen1Resource.Type === CFN_AUTH_TYPE.UserPoolClient && (isWebClient || isNativeClient);
-        const foundUserPoolGroupPair =
-          gen1Resource.Type === CFN_AUTH_TYPE.UserPoolGroup && gen2ResourceLogicalId.includes(gen1ResourceLogicalId);
-        const foundIamRolePair = gen1Resource.Type === CFN_IAM_TYPE.Role && gen2ResourceLogicalId.includes(gen1ResourceLogicalId);
-        if (
-          !RESOURCE_TYPES_WITH_MULTIPLE_RESOURCES.includes(gen1Resource.Type) ||
-          foundUserPoolClientPair ||
-          foundUserPoolGroupPair ||
-          foundIamRolePair
-        ) {
+        const matcher = MULTI_INSTANCE_MATCHERS.get(gen1Resource.Type);
+        if (!matcher || matcher(gen1ResourceLogicalId, gen2ResourceLogicalId)) {
           this.logger.debug(`Mapping found: ${gen1ResourceLogicalId} -> ${gen2ResourceLogicalId}`);
           gen1ToGen2ResourceLogicalIdMapping.set(gen1ResourceLogicalId, gen2ResourceLogicalId);
           clonedGen1ResourceMap.delete(gen1ResourceLogicalId);

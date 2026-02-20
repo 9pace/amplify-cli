@@ -1,7 +1,6 @@
 import { CloudFormationClient, DescribeStackResourcesCommand, GetTemplateCommand, Parameter } from '@aws-sdk/client-cloudformation';
 import CategoryTemplateGenerator from './category-template-generator';
 import { discoverCategoryStacks } from './stack-discovery';
-import fs from 'node:fs/promises';
 import {
   NON_CUSTOM_RESOURCE_CATEGORY,
   CFN_AUTH_TYPE,
@@ -27,8 +26,6 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const GEN2_AMPLIFY_AUTH_LOGICAL_ID_PREFIX = 'amplifyAuth';
 const CDK_HASH_LENGTH = 8;
-
-const TEMPLATES_DIR = '.amplify/migration/templates';
 
 const GEN1 = 'Gen 1';
 const GEN2 = 'Gen 2';
@@ -139,10 +136,6 @@ class TemplateGenerator {
     return this._categoryStackMap;
   }
 
-  private set categoryStackMap(value: Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>) {
-    this._categoryStackMap = value;
-  }
-
   // Public getter for cfnClient
   public get cfnClient() {
     return this._cfnClient;
@@ -155,17 +148,13 @@ class TemplateGenerator {
 
   // Get stack template for a given stack ID
   public async getStackTemplate(stackId: string): Promise<CFNTemplate | undefined> {
-    try {
-      const { TemplateBody } = await this.cfnClient.send(
-        new GetTemplateCommand({
-          StackName: stackId,
-        }),
-      );
-      if (!TemplateBody) return undefined;
-      return JSON.parse(TemplateBody);
-    } catch (error) {
-      return undefined;
-    }
+    const { TemplateBody } = await this.cfnClient.send(
+      new GetTemplateCommand({
+        StackName: stackId,
+      }),
+    );
+    if (!TemplateBody) return undefined;
+    return JSON.parse(TemplateBody);
   }
 
   // Get resources to migrate for a given category
@@ -183,27 +172,7 @@ class TemplateGenerator {
 
   // Generate templates for selected categories only (Entry point for refactor)
   public async generateSelectedCategories(selectedCategories: string[]): Promise<boolean> {
-    await fs.mkdir(TEMPLATES_DIR, { recursive: true });
-
-    // Filter categoryStackMap to only include selected categories
-    const filteredCategoryStackMap = new Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>();
-    for (const [category, stacks] of this._categoryStackMap.entries()) {
-      if (selectedCategories.includes(category)) {
-        filteredCategoryStackMap.set(category, stacks);
-      }
-    }
-
-    // Temporarily replace categoryStackMap with filtered version
-    const originalCategoryStackMap = this._categoryStackMap;
-    this._categoryStackMap = filteredCategoryStackMap;
-
-    try {
-      const result = await this.generateCategoryTemplates(false);
-      return result;
-    } finally {
-      // Restore original categoryStackMap
-      this._categoryStackMap = originalCategoryStackMap;
-    }
+    return this.generateCategoryTemplates(false, new Set(selectedCategories));
   }
 
   public async rollback() {
@@ -272,8 +241,10 @@ class TemplateGenerator {
     return { newTemplate, oldTemplate, parameters };
   }
 
-  private initializeCategoryGenerators() {
+  private initializeCategoryGenerators(categories?: Set<string>) {
+    this.categoryTemplateGenerators.length = 0;
     for (const [category, [sourceStackId, destinationStackId]] of this.categoryStackMap.entries()) {
+      if (categories && !categories.has(category)) continue;
       const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
 
       if (config) {
@@ -307,8 +278,8 @@ class TemplateGenerator {
     });
   }
 
-  private async generateCategoryTemplates(isRollback = false) {
-    this.initializeCategoryGenerators();
+  private async generateCategoryTemplates(isRollback = false, categories?: Set<string>) {
+    this.initializeCategoryGenerators(categories);
     for (const {
       category,
       sourceStackId: sourceCategoryStackId,
@@ -535,8 +506,7 @@ class TemplateGenerator {
   }
 
   private getSourceToDestinationMessage(rollback: boolean) {
-    const SOURCE_TO_DESTINATION_STACKS = [GEN1, GEN2];
-    return rollback ? SOURCE_TO_DESTINATION_STACKS.reverse().join(' to ') : SOURCE_TO_DESTINATION_STACKS.join(' to ');
+    return rollback ? `${GEN2} to ${GEN1}` : `${GEN1} to ${GEN2}`;
   }
 
   private buildSourceToDestinationMapForRollback(sourceResourcesToRemove: Map<string, CFNResource>): Map<string, string> {

@@ -14,7 +14,6 @@ import {
   StackStatus,
   UpdateStackCommand,
 } from '@aws-sdk/client-cloudformation';
-import fs from 'node:fs/promises';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import {
@@ -242,7 +241,6 @@ jest.mock('@aws-sdk/client-cloudformation', () => {
   };
 });
 
-jest.mock('node:fs/promises');
 const stubReadTemplate: CFNTemplate = {
   AWSTemplateFormatVersion: 'AWSTemplateFormatVersion',
   Description: 'Gen2 template',
@@ -480,7 +478,6 @@ describe('TemplateGenerator', () => {
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
     expect(result).toBe(true);
-    expect(fs.mkdir).toBeCalledTimes(1);
     expect(mockGenerateGen1PreProcessTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
     expect(mockGenerateGen2ResourceRemovalTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
     expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
@@ -675,7 +672,6 @@ describe('TemplateGenerator', () => {
   });
 
   function successfulRollbackAssertions(numCategoriesToSkipUpdate = 0) {
-    expect(fs.mkdir).not.toBeCalled();
     expect(mockGenerateGen1PreProcessTemplate).not.toBeCalled();
     expect(mockGenerateGen2ResourceRemovalTemplate).not.toBeCalled();
     expect(mockGenerateRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - numCategoriesToSkipUpdate);
