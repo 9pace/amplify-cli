@@ -66,6 +66,20 @@ export interface CFNStackRefactorTemplates {
   logicalIdMapping: Map<string, string>;
 }
 
+/**
+ * Result of preparing a single category for refactoring.
+ * Returned by the branch methods in TemplateGenerator.generateCategoryTemplates.
+ */
+export interface CategoryRefactorResult {
+  sourceTemplate: CFNTemplate;
+  destinationTemplate: CFNTemplate;
+  logicalIdMapping: Map<string, string>;
+  /** Original Gen2 template before resource removal — needed for rollback on failure */
+  oldDestinationTemplate?: CFNTemplate;
+  /** Gen2 stack parameters — needed for rollback on failure */
+  destinationStackParameters?: Parameter[];
+}
+
 export enum NON_CUSTOM_RESOURCE_CATEGORY {
   AUTH = 'auth',
   STORAGE = 'storage',

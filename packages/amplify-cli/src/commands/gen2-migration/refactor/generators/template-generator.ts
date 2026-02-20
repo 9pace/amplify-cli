@@ -21,6 +21,7 @@ import {
   ResourceMapping,
   CFN_ANALYTICS_TYPE,
   NoResourcesError,
+  CategoryRefactorResult,
 } from '../types';
 import { pollStackForCompletionState, tryUpdateStack } from '../cfn-stack-updater';
 import { SSMClient } from '@aws-sdk/client-ssm';
@@ -551,104 +552,45 @@ class TemplateGenerator {
     this.initializeCategoryGenerators(customResourceMap);
     for (const [category, sourceCategoryStackId, destinationCategoryStackId, categoryTemplateGenerator] of this
       .categoryTemplateGenerators) {
-      let newSourceTemplate: CFNTemplate | undefined;
-      let newDestinationTemplate: CFNTemplate | undefined;
-      let oldDestinationTemplate: CFNTemplate | undefined;
-      let sourceStackParameters: Parameter[] | undefined;
-      let destinationStackParameters: Parameter[] | undefined;
-      let sourceTemplateForRefactor: CFNTemplate | undefined;
-      let destinationTemplateForRefactor: CFNTemplate | undefined;
-      let logicalIdMappingForRefactor: Map<string, string> | undefined;
+      let result: CategoryRefactorResult | undefined;
 
       if (customResourceMap && this.isCustomResource(category)) {
-        const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
-        if (!processGen1StackResponse) continue;
-        const [newGen1Template] = processGen1StackResponse;
-        newSourceTemplate = newGen1Template;
-
-        const { newTemplate } = await this.processGen2Stack(category, categoryTemplateGenerator, destinationCategoryStackId);
-        newDestinationTemplate = newTemplate;
-
-        const sourceToDestinationMap = new Map<string, string>();
-
-        for (const resourceMapping of customResourceMap) {
-          const sourceLogicalId = resourceMapping.Source.LogicalResourceId;
-          const destinationLogicalId = resourceMapping.Destination.LogicalResourceId;
-
-          if (sourceLogicalId && destinationLogicalId) {
-            sourceToDestinationMap.set(sourceLogicalId, destinationLogicalId);
-          }
-        }
-
-        const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateRefactorTemplates(
-          categoryTemplateGenerator.gen1ResourcesToMove,
-          categoryTemplateGenerator.gen2ResourcesToRemove,
-          newSourceTemplate,
-          newDestinationTemplate,
-          sourceToDestinationMap,
-        );
-
-        sourceTemplateForRefactor = sourceTemplate;
-        destinationTemplateForRefactor = destinationTemplate;
-        logicalIdMappingForRefactor = logicalIdMapping;
-      } else if (!isRollback) {
-        const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
-        if (!processGen1StackResponse) continue;
-        const [newGen1Template, gen1StackParameters] = processGen1StackResponse;
-        sourceStackParameters = gen1StackParameters;
-        newSourceTemplate = newGen1Template;
-        const { newTemplate, oldTemplate, parameters } = await this.processGen2Stack(
+        result = await this.prepareCategoryForCustomResourceRefactor(
           category,
           categoryTemplateGenerator,
+          sourceCategoryStackId,
+          destinationCategoryStackId,
+          customResourceMap,
+        );
+      } else if (!isRollback) {
+        result = await this.prepareCategoryForForwardRefactor(
+          category,
+          categoryTemplateGenerator,
+          sourceCategoryStackId,
           destinationCategoryStackId,
         );
-        newDestinationTemplate = newTemplate;
-        oldDestinationTemplate = oldTemplate;
-        destinationStackParameters = parameters;
-        const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateStackRefactorTemplates(
-          newSourceTemplate,
-          newDestinationTemplate,
+      } else {
+        result = await this.prepareCategoryForRollback(
+          category,
+          categoryTemplateGenerator,
+          sourceCategoryStackId,
+          destinationCategoryStackId,
         );
-        sourceTemplateForRefactor = sourceTemplate;
-        destinationTemplateForRefactor = destinationTemplate;
-        logicalIdMappingForRefactor = logicalIdMapping;
       }
-      // revert scenario
-      else {
-        const sourceCategoryTemplate = await categoryTemplateGenerator.readTemplate(sourceCategoryStackId);
-        const destinationCategoryTemplate = await categoryTemplateGenerator.readTemplate(destinationCategoryStackId);
-        newSourceTemplate = sourceCategoryTemplate;
-        newDestinationTemplate = destinationCategoryTemplate;
-        try {
-          const { sourceTemplate, destinationTemplate, logicalIdMapping } = await this.generateRefactorTemplatesForRollback(
-            newSourceTemplate,
-            newDestinationTemplate,
-            categoryTemplateGenerator,
-            sourceCategoryStackId,
-            category,
-          );
-          sourceTemplateForRefactor = sourceTemplate;
-          destinationTemplateForRefactor = destinationTemplate;
-          logicalIdMappingForRefactor = logicalIdMapping;
-        } catch (e) {
-          if (this.isNoResourcesError(e)) {
-            continue;
-          }
-          throw e;
-        }
-      }
+
+      if (!result) continue;
 
       this.logger.info(
         `Moving ${this.getStackCategoryName(category)} resources from ${this.getSourceToDestinationMessage(isRollback)} stack...`,
       );
       const { success, failedRefactorMetadata } = await this.refactorResources(
-        logicalIdMappingForRefactor,
+        result.logicalIdMapping,
         sourceCategoryStackId,
         destinationCategoryStackId,
         category,
         isRollback,
-        sourceTemplateForRefactor,
-        destinationTemplateForRefactor,
+        result.sourceTemplate,
+        result.destinationTemplate,
       );
       if (!success) {
         this.logger.info(
@@ -659,8 +601,13 @@ class TemplateGenerator {
           }.`,
         );
         await pollStackForCompletionState(this.cfnClient, destinationCategoryStackId, 30);
-        if (!isRollback && oldDestinationTemplate) {
-          await this.rollbackGen2Stack(category, destinationCategoryStackId, destinationStackParameters, oldDestinationTemplate);
+        if (!isRollback && result.oldDestinationTemplate) {
+          await this.rollbackGen2Stack(
+            category,
+            destinationCategoryStackId,
+            result.destinationStackParameters,
+            result.oldDestinationTemplate,
+          );
         }
         return false;
       } else {
@@ -672,6 +619,86 @@ class TemplateGenerator {
       }
     }
     return true;
+  }
+
+  private async prepareCategoryForCustomResourceRefactor(
+    category: string,
+    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    sourceCategoryStackId: string,
+    destinationCategoryStackId: string,
+    customResourceMap: ResourceMapping[],
+  ): Promise<CategoryRefactorResult | undefined> {
+    const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
+    if (!processGen1StackResponse) return undefined;
+    const [newGen1Template] = processGen1StackResponse;
+
+    const { newTemplate: newGen2Template } = await this.processGen2Stack(category, categoryTemplateGenerator, destinationCategoryStackId);
+
+    const sourceToDestinationMap = new Map<string, string>();
+    for (const { Source, Destination } of customResourceMap) {
+      if (Source.LogicalResourceId && Destination.LogicalResourceId) {
+        sourceToDestinationMap.set(Source.LogicalResourceId, Destination.LogicalResourceId);
+      }
+    }
+
+    const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateRefactorTemplates(
+      categoryTemplateGenerator.gen1ResourcesToMove,
+      categoryTemplateGenerator.gen2ResourcesToRemove,
+      newGen1Template,
+      newGen2Template,
+      sourceToDestinationMap,
+    );
+    return { sourceTemplate, destinationTemplate, logicalIdMapping };
+  }
+
+  private async prepareCategoryForForwardRefactor(
+    category: string,
+    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    sourceCategoryStackId: string,
+    destinationCategoryStackId: string,
+  ): Promise<CategoryRefactorResult | undefined> {
+    const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
+    if (!processGen1StackResponse) return undefined;
+    const [newGen1Template] = processGen1StackResponse;
+
+    const { newTemplate, oldTemplate, parameters } = await this.processGen2Stack(
+      category,
+      categoryTemplateGenerator,
+      destinationCategoryStackId,
+    );
+    const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateStackRefactorTemplates(
+      newGen1Template,
+      newTemplate,
+    );
+    return {
+      sourceTemplate,
+      destinationTemplate,
+      logicalIdMapping,
+      oldDestinationTemplate: oldTemplate,
+      destinationStackParameters: parameters,
+    };
+  }
+
+  private async prepareCategoryForRollback(
+    category: string,
+    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    sourceCategoryStackId: string,
+    destinationCategoryStackId: string,
+  ): Promise<CategoryRefactorResult | undefined> {
+    const sourceTemplate = await categoryTemplateGenerator.readTemplate(sourceCategoryStackId);
+    const destinationTemplate = await categoryTemplateGenerator.readTemplate(destinationCategoryStackId);
+    try {
+      return await this.generateRefactorTemplatesForRollback(
+        sourceTemplate,
+        destinationTemplate,
+        categoryTemplateGenerator,
+        sourceCategoryStackId,
+        category,
+      );
+    } catch (e) {
+      if (this.isNoResourcesError(e)) return undefined;
+      throw e;
+    }
   }
 
   private async refactorResources(
