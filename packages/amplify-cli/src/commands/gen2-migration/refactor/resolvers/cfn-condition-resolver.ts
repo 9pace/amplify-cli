@@ -112,9 +112,12 @@ class CFNConditionResolver {
       return value;
     }
 
-    // TODO: Unrecognized object shapes (e.g. Fn::Select) silently resolve to undefined.
-    // This preserves existing behavior but may produce incorrect condition evaluations.
-    return undefined;
+    throw new AmplifyError('CloudFormationTemplateError', {
+      message: `Unsupported intrinsic function '${Object.keys(statement)[0]}' in condition expression`,
+      resolution:
+        'This CloudFormation condition uses a function that the migration tool does not support. ' +
+        'Supported functions: Fn::Equals, Fn::Not, Fn::Or, Fn::And, Fn::If, Ref, and Condition references.',
+    });
   }
 
   private resolveConditionInResources(resources: Record<string, CFNResource>, conditionValueMap: Map<string, boolean>) {
