@@ -662,3 +662,40 @@ it('should throw InvalidStackError when stack resource has no physical ID', () =
     ),
   ).toThrow("Resource 'NoPhysicalIdResource' does not have a physical resource ID");
 });
+
+it('should not corrupt string values that look like Ref intrinsic functions', () => {
+  const tmpl: CFNTemplate = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'test',
+    Parameters: {},
+    Outputs: {
+      BucketOutput: { Value: { Ref: 'MyBucket' }, Description: 'bucket' },
+    },
+    Resources: {
+      MyBucket: {
+        Type: 'AWS::S3::Bucket',
+        Properties: {},
+      },
+      MyLambda: {
+        Type: 'AWS::Lambda::Function',
+        Properties: {
+          Environment: {
+            Variables: {
+              // This string value looks like a Ref intrinsic but is just a string.
+              // JSON.stringify escapes the inner quotes, so the regex doesn't match.
+              BUCKET_REF_STRING: '{"Ref":"MyBucket"}',
+            },
+          },
+        },
+      },
+    },
+  };
+  const resolved = new CfnOutputResolver(tmpl, 'us-east-1', '12345').resolve(
+    ['MyBucket'],
+    [{ OutputKey: 'BucketOutput', OutputValue: 'my-actual-bucket-name' }],
+    [{ LogicalResourceId: 'MyBucket', PhysicalResourceId: 'my-actual-bucket-name', ResourceType: 'AWS::S3::Bucket' } as any],
+  );
+  // String values survive because JSON.stringify escapes inner quotes,
+  // so {"Ref":"MyBucket"} becomes {\"Ref\":\"MyBucket\"} which doesn't match the regex.
+  expect((resolved.Resources.MyLambda.Properties.Environment as any).Variables.BUCKET_REF_STRING).toBe('{"Ref":"MyBucket"}');
+});
