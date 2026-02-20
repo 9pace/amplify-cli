@@ -5,7 +5,7 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 const POLL_ATTEMPTS = 120;
 const POLL_INTERVAL_MS = 5 * 1000;
 const NO_UPDATES_MESSAGE = 'No updates are to be performed';
-const CFN_IAM_CAPABILIY = 'CAPABILITY_NAMED_IAM';
+const CFN_IAM_CAPABILITY = 'CAPABILITY_NAMED_IAM';
 const COMPLETION_STATE = '_COMPLETE';
 /**
  * Updates a stack with given template. If no updates are present, it no-ops.
@@ -28,8 +28,7 @@ export async function tryUpdateStack(
         TemplateBody: JSON.stringify(templateBody),
         Parameters: parameters,
         StackName: stackName,
-        Capabilities: [CFN_IAM_CAPABILIY],
-        Tags: [],
+        Capabilities: [CFN_IAM_CAPABILITY],
       }),
     );
     return pollStackForCompletionState(cfnClient, stackName, attempts);
@@ -73,7 +72,7 @@ export async function pollStackForCompletionState(
         resolution: `Check the CloudFormation console for stack '${stackName}' to see its current state.`,
       });
     }
-    if (stackStatus?.endsWith(COMPLETION_STATE)) {
+    if (stackStatus.endsWith(COMPLETION_STATE)) {
       return stackStatus;
     }
     await new Promise((res) => setTimeout(() => res(''), POLL_INTERVAL_MS));
