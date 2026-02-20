@@ -41,10 +41,10 @@ const RESOURCE_TYPES_WITH_MULTIPLE_RESOURCES = [
 class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private gen1DescribeStacksResponse: Stack | undefined;
   private gen2DescribeStacksResponse: Stack | undefined;
-  public gen1ResourcesToMove: Map<string, CFNResource>;
-  public gen2ResourcesToRemove: Map<string, CFNResource>;
-  public gen2Template: CFNTemplate | undefined;
-  public gen2StackParameters: Parameter[] | undefined;
+  private _gen1ResourcesToMove: Map<string, CFNResource>;
+  private _gen2ResourcesToRemove: Map<string, CFNResource>;
+  private _gen2Template: CFNTemplate | undefined;
+  private _gen2StackParameters: Parameter[] | undefined;
   constructor(
     private readonly logger: Logger,
     private readonly gen1StackId: string,
@@ -59,8 +59,28 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     private readonly resourcesToMove: CFNCategoryType[],
     private readonly resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean,
   ) {
-    this.gen1ResourcesToMove = new Map();
-    this.gen2ResourcesToRemove = new Map();
+    this._gen1ResourcesToMove = new Map();
+    this._gen2ResourcesToRemove = new Map();
+  }
+
+  /** Resources identified for migration from Gen1. Populated by generateGen1PreProcessTemplate(). */
+  public get gen1ResourcesToMove(): ReadonlyMap<string, CFNResource> {
+    return this._gen1ResourcesToMove;
+  }
+
+  /** Resources identified for removal from Gen2. Populated by generateGen2ResourceRemovalTemplate(). */
+  public get gen2ResourcesToRemove(): ReadonlyMap<string, CFNResource> {
+    return this._gen2ResourcesToRemove;
+  }
+
+  /** Gen2 template snapshot. Populated by generateGen2ResourceRemovalTemplate(). */
+  public get gen2Template(): CFNTemplate | undefined {
+    return this._gen2Template;
+  }
+
+  /** Gen2 stack parameters. Populated by generateGen2ResourceRemovalTemplate(). */
+  public get gen2StackParameters(): Parameter[] | undefined {
+    return this._gen2StackParameters;
   }
 
   /**
@@ -98,7 +118,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
 
     const oldGen1Template = await this.readTemplate(this.gen1StackId);
     this.logger.debug(`Gen1 Template Resources count: ${Object.keys(oldGen1Template.Resources).length}`);
-    this.gen1ResourcesToMove = new Map(
+    this._gen1ResourcesToMove = new Map(
       Object.entries(oldGen1Template.Resources).filter(([logicalId, value]) => {
         return (
           this.resourcesToMovePredicate?.(this.resourcesToMove, [logicalId, value]) ??
@@ -106,8 +126,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
         );
       }),
     );
-    this.logger.debug(`Gen1 Resources to move: ${Array.from(this.gen1ResourcesToMove.keys())}`);
-    for (const [logicalId, resource] of this.gen1ResourcesToMove) {
+    this.logger.debug(`Gen1 Resources to move: ${Array.from(this._gen1ResourcesToMove.keys())}`);
+    for (const [logicalId, resource] of this._gen1ResourcesToMove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
         this.logger.debug(`     DependsOn: ${JSON.stringify(resource.DependsOn)}`);
@@ -115,8 +135,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     }
 
     // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this.gen1ResourcesToMove.size === 0) throw new NoResourcesError('No resources to move in Gen1 stack.');
-    const logicalResourceIds = [...this.gen1ResourcesToMove.keys()];
+    if (this._gen1ResourcesToMove.size === 0) throw new NoResourcesError('No resources to move in Gen1 stack.');
+    const logicalResourceIds = [...this._gen1ResourcesToMove.keys()];
 
     const gen1ParametersResolvedTemplate = new CfnParameterResolver(oldGen1Template, extractStackNameFromId(this.gen1StackId)).resolve(
       Parameters,
@@ -140,7 +160,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     // If all resources are being moved, add a placeholder resource now so it exists
     // in the stack before the refactor operation.
     const totalResources = Object.keys(oldGen1Template.Resources).length;
-    const resourcesToMoveCount = this.gen1ResourcesToMove.size;
+    const resourcesToMoveCount = this._gen1ResourcesToMove.size;
     if (totalResources === resourcesToMoveCount) {
       this.logger.debug('All Gen1 resources will be moved, adding placeholder resource to Gen1 stack');
       gen1TemplateWithConditionsResolved.Resources['MigrationPlaceholder'] = {
@@ -199,7 +219,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
         resolution: 'Ensure the Gen2 stack has outputs defined.',
       });
     }
-    this.gen2StackParameters = Parameters;
+    this._gen2StackParameters = Parameters;
     if (Parameters) {
       this.logger.debug(`Gen2 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
     }
@@ -207,9 +227,9 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
 
     const oldGen2Template = await this.readTemplate(this.gen2StackId);
     this.logger.debug(`Gen2 Template Resources count: ${Object.keys(oldGen2Template.Resources).length}`);
-    this.gen2Template = oldGen2Template;
+    this._gen2Template = oldGen2Template;
 
-    this.gen2ResourcesToRemove = new Map(
+    this._gen2ResourcesToRemove = new Map(
       Object.entries(oldGen2Template.Resources).filter(([logicalId, value]) => {
         return (
           this.resourcesToMovePredicate?.(this.resourcesToMove, [logicalId, value]) ??
@@ -217,8 +237,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
         );
       }),
     );
-    this.logger.debug(`Gen2 Resources to remove: ${Array.from(this.gen2ResourcesToRemove.keys())}`);
-    for (const [logicalId, resource] of this.gen2ResourcesToRemove) {
+    this.logger.debug(`Gen2 Resources to remove: ${Array.from(this._gen2ResourcesToRemove.keys())}`);
+    for (const [logicalId, resource] of this._gen2ResourcesToRemove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
         this.logger.debug(`     DependsOn: ${JSON.stringify(resource.DependsOn)}`);
@@ -226,8 +246,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     }
 
     // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this.gen2ResourcesToRemove.size === 0) throw new NoResourcesError('No resources to remove in Gen2 stack.');
-    const logicalResourceIds = [...this.gen2ResourcesToRemove.keys()];
+    if (this._gen2ResourcesToRemove.size === 0) throw new NoResourcesError('No resources to remove in Gen2 stack.');
+    const logicalResourceIds = [...this._gen2ResourcesToRemove.keys()];
 
     const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);
     return {
@@ -238,7 +258,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   public generateStackRefactorTemplates(gen1Template: CFNTemplate, gen2Template: CFNTemplate): CFNStackRefactorTemplates {
-    return this.generateRefactorTemplates(this.gen1ResourcesToMove, this.gen2ResourcesToRemove, gen1Template, gen2Template);
+    return this.generateRefactorTemplates(this._gen1ResourcesToMove, this._gen2ResourcesToRemove, gen1Template, gen2Template);
   }
 
   public async readTemplate(stackId: string) {
@@ -335,7 +355,10 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     return gen2Template;
   }
 
-  private buildGen1ToGen2ResourceLogicalIdMapping(gen1ResourceMap: Map<string, CFNResource>, gen2ResourceMap: Map<string, CFNResource>) {
+  private buildGen1ToGen2ResourceLogicalIdMapping(
+    gen1ResourceMap: ReadonlyMap<string, CFNResource>,
+    gen2ResourceMap: ReadonlyMap<string, CFNResource>,
+  ) {
     const clonedGen1ResourceMap = new Map(gen1ResourceMap);
     const clonedGen2ResourceMap = new Map(gen2ResourceMap);
     const gen1ToGen2ResourceLogicalIdMapping = new Map<string, string>();
@@ -398,8 +421,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   public generateRefactorTemplates(
-    gen1ResourcesToMove: Map<string, CFNResource>,
-    gen2ResourcesToRemove: Map<string, CFNResource>,
+    gen1ResourcesToMove: ReadonlyMap<string, CFNResource>,
+    gen2ResourcesToRemove: ReadonlyMap<string, CFNResource>,
     gen1Template: CFNTemplate,
     gen2Template: CFNTemplate,
     sourceToDestinationResourceLogicalIdMapping?: Map<string, string>,
