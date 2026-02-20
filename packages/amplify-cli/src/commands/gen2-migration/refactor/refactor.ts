@@ -22,6 +22,27 @@ const createAccountIdError = () =>
       'Verify your AWS credentials are configured and have permission to call sts:GetCallerIdentity. Run "aws sts get-caller-identity" to test.',
   });
 
+export function isResourceMappingValid(resourceMapping: unknown): resourceMapping is ResourceMapping {
+  return (
+    typeof resourceMapping === 'object' &&
+    resourceMapping !== null &&
+    'Destination' in resourceMapping &&
+    typeof resourceMapping.Destination === 'object' &&
+    resourceMapping.Destination !== null &&
+    'StackName' in resourceMapping.Destination &&
+    typeof resourceMapping.Destination.StackName === 'string' &&
+    'LogicalResourceId' in resourceMapping.Destination &&
+    typeof resourceMapping.Destination.LogicalResourceId === 'string' &&
+    'Source' in resourceMapping &&
+    typeof resourceMapping.Source === 'object' &&
+    resourceMapping.Source !== null &&
+    'StackName' in resourceMapping.Source &&
+    typeof resourceMapping.Source.StackName === 'string' &&
+    'LogicalResourceId' in resourceMapping.Source &&
+    typeof resourceMapping.Source.LogicalResourceId === 'string'
+  );
+}
+
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   private toStack?: string;
   private resourceMappings?: string;
@@ -145,7 +166,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       }
 
       // Validate structure
-      if (!Array.isArray(this.parsedResourceMappings) || !this.parsedResourceMappings.every(this.isResourceMappingValid)) {
+      if (!Array.isArray(this.parsedResourceMappings) || !this.parsedResourceMappings.every(isResourceMappingValid)) {
         throw new AmplifyError('InputValidationError', {
           message: 'Invalid resource mappings structure',
           resolution: 'Each mapping must have Source and Destination objects with StackName and LogicalResourceId properties.',
@@ -165,27 +186,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       }
       throw error;
     }
-  }
-
-  private isResourceMappingValid(resourceMapping: unknown): resourceMapping is ResourceMapping {
-    return (
-      typeof resourceMapping === 'object' &&
-      resourceMapping !== null &&
-      'Destination' in resourceMapping &&
-      typeof resourceMapping.Destination === 'object' &&
-      resourceMapping.Destination !== null &&
-      'StackName' in resourceMapping.Destination &&
-      typeof resourceMapping.Destination.StackName === 'string' &&
-      'LogicalResourceId' in resourceMapping.Destination &&
-      typeof resourceMapping.Destination.LogicalResourceId === 'string' &&
-      'Source' in resourceMapping &&
-      typeof resourceMapping.Source === 'object' &&
-      resourceMapping.Source !== null &&
-      'StackName' in resourceMapping.Source &&
-      typeof resourceMapping.Source.StackName === 'string' &&
-      'LogicalResourceId' in resourceMapping.Source &&
-      typeof resourceMapping.Source.LogicalResourceId === 'string'
-    );
   }
 
   private async executeStackRefactor(): Promise<void> {
