@@ -38,6 +38,21 @@ const RESOURCE_TYPES_WITH_MULTIPLE_RESOURCES = [
   CFN_IAM_TYPE.Role.valueOf(),
 ];
 
+export interface CategoryTemplateGeneratorConfig<CFNCategoryType extends CFN_CATEGORY_TYPE> {
+  logger: Logger;
+  gen1StackId: string;
+  gen2StackId: string;
+  region: string;
+  accountId: string;
+  cfnClient: CloudFormationClient;
+  ssmClient: SSMClient;
+  cognitoIdpClient: CognitoIdentityProviderClient;
+  appId: string;
+  environmentName: string;
+  resourcesToMove: CFNCategoryType[];
+  resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean;
+}
+
 class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private gen1DescribeStacksResponse: Stack | undefined;
   private gen2DescribeStacksResponse: Stack | undefined;
@@ -45,20 +60,32 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private _gen2ResourcesToRemove: Map<string, CFNResource>;
   private _gen2Template: CFNTemplate | undefined;
   private _gen2StackParameters: Parameter[] | undefined;
-  constructor(
-    private readonly logger: Logger,
-    private readonly gen1StackId: string,
-    private readonly gen2StackId: string,
-    private readonly region: string,
-    private readonly accountId: string,
-    private readonly cfnClient: CloudFormationClient,
-    private readonly ssmClient: SSMClient,
-    private readonly cognitoIdpClient: CognitoIdentityProviderClient,
-    private readonly appId: string,
-    private readonly environmentName: string,
-    private readonly resourcesToMove: CFNCategoryType[],
-    private readonly resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean,
-  ) {
+  private readonly logger: Logger;
+  private readonly gen1StackId: string;
+  private readonly gen2StackId: string;
+  private readonly region: string;
+  private readonly accountId: string;
+  private readonly cfnClient: CloudFormationClient;
+  private readonly ssmClient: SSMClient;
+  private readonly cognitoIdpClient: CognitoIdentityProviderClient;
+  private readonly appId: string;
+  private readonly environmentName: string;
+  private readonly resourcesToMove: CFNCategoryType[];
+  private readonly resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean;
+
+  constructor(config: CategoryTemplateGeneratorConfig<CFNCategoryType>) {
+    this.logger = config.logger;
+    this.gen1StackId = config.gen1StackId;
+    this.gen2StackId = config.gen2StackId;
+    this.region = config.region;
+    this.accountId = config.accountId;
+    this.cfnClient = config.cfnClient;
+    this.ssmClient = config.ssmClient;
+    this.cognitoIdpClient = config.cognitoIdpClient;
+    this.appId = config.appId;
+    this.environmentName = config.environmentName;
+    this.resourcesToMove = config.resourcesToMove;
+    this.resourcesToMovePredicate = config.resourcesToMovePredicate;
     this._gen1ResourcesToMove = new Map();
     this._gen2ResourcesToRemove = new Map();
   }

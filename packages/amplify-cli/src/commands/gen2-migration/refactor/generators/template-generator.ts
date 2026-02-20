@@ -514,23 +514,21 @@ class TemplateGenerator {
     resourcesToRefactor: CFN_CATEGORY_TYPE[],
     customResourceMap?: ResourceMapping[],
   ): CategoryTemplateGenerator<CFN_CATEGORY_TYPE> {
-    return new CategoryTemplateGenerator(
-      this.logger,
-      sourceStackId,
-      destinationStackId,
-      this.region,
-      this.accountId,
-      this.cfnClient,
-      this.ssmClient,
-      this.cognitoIdpClient,
-      this.appId,
-      this.environmentName,
-      resourcesToRefactor,
-      customResourceMap
+    return new CategoryTemplateGenerator({
+      logger: this.logger,
+      gen1StackId: sourceStackId,
+      gen2StackId: destinationStackId,
+      region: this.region,
+      accountId: this.accountId,
+      cfnClient: this.cfnClient,
+      ssmClient: this.ssmClient,
+      cognitoIdpClient: this.cognitoIdpClient,
+      appId: this.appId,
+      environmentName: this.environmentName,
+      resourcesToMove: resourcesToRefactor,
+      resourcesToMovePredicate: customResourceMap
         ? (_resourcesToMove: CFN_CATEGORY_TYPE[], cfnResource: [string, CFNResource]) => {
             const [logicalId] = cfnResource;
-
-            // Check if customResourceMap contains the logical ID
             return (
               customResourceMap?.some(
                 (resourceMapping) =>
@@ -539,7 +537,7 @@ class TemplateGenerator {
             );
           }
         : undefined,
-    );
+    });
   }
 
   private isCustomResource(category: string) {

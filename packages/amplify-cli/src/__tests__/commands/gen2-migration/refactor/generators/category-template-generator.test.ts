@@ -859,77 +859,77 @@ jest.mock('@aws-sdk/client-ssm', () => {
 });
 
 describe('CategoryTemplateGenerator', () => {
-  const s3TemplateGenerator = new CategoryTemplateGenerator(
-    new Logger('mock', 'mock', 'mock'),
-    GEN1_CATEGORY_STACK_ID,
-    GEN2_CATEGORY_STACK_ID,
-    'us-east-1',
-    '12345',
-    new CloudFormationClient(),
-    new SSMClient(),
-    new CognitoIdentityProviderClient(),
-    MOCK_APP_ID,
-    ENV_NAME,
-    [CFN_S3_TYPE.Bucket],
-  );
+  const s3TemplateGenerator = new CategoryTemplateGenerator({
+    logger: new Logger('mock', 'mock', 'mock'),
+    gen1StackId: GEN1_CATEGORY_STACK_ID,
+    gen2StackId: GEN2_CATEGORY_STACK_ID,
+    region: 'us-east-1',
+    accountId: '12345',
+    cfnClient: new CloudFormationClient(),
+    ssmClient: new SSMClient(),
+    cognitoIdpClient: new CognitoIdentityProviderClient(),
+    appId: MOCK_APP_ID,
+    environmentName: ENV_NAME,
+    resourcesToMove: [CFN_S3_TYPE.Bucket],
+  });
 
-  const s3TemplateGeneratorWithPredicate = new CategoryTemplateGenerator(
-    new Logger('mock', 'mock', 'mock'),
-    GEN1_CATEGORY_STACK_ID,
-    GEN2_CATEGORY_STACK_ID,
-    'us-east-1',
-    '12345',
-    new CloudFormationClient(),
-    new SSMClient(),
-    new CognitoIdentityProviderClient(),
-    MOCK_APP_ID,
-    ENV_NAME,
-    [CFN_S3_TYPE.Bucket],
-    // decide which resources to move based on resource properties
-    (resourcesToMove, resourceEntry) => resourcesToMove.includes(CFN_S3_TYPE.Bucket) && resourceEntry[0] === GEN1_S3_BUCKET_LOGICAL_ID,
-  );
+  const s3TemplateGeneratorWithPredicate = new CategoryTemplateGenerator({
+    logger: new Logger('mock', 'mock', 'mock'),
+    gen1StackId: GEN1_CATEGORY_STACK_ID,
+    gen2StackId: GEN2_CATEGORY_STACK_ID,
+    region: 'us-east-1',
+    accountId: '12345',
+    cfnClient: new CloudFormationClient(),
+    ssmClient: new SSMClient(),
+    cognitoIdpClient: new CognitoIdentityProviderClient(),
+    appId: MOCK_APP_ID,
+    environmentName: ENV_NAME,
+    resourcesToMove: [CFN_S3_TYPE.Bucket],
+    resourcesToMovePredicate: (resourcesToMove, resourceEntry) =>
+      resourcesToMove.includes(CFN_S3_TYPE.Bucket) && resourceEntry[0] === GEN1_S3_BUCKET_LOGICAL_ID,
+  });
 
-  const noGen1ResourcesToMoveS3TemplateGenerator = new CategoryTemplateGenerator(
-    new Logger('mock', 'mock', 'mock'),
-    GEN1_CATEGORY_STACK_ID,
-    GEN2_CATEGORY_STACK_ID,
-    'us-east-1',
-    '12345',
-    new CloudFormationClient(),
-    new SSMClient(),
-    new CognitoIdentityProviderClient(),
-    MOCK_APP_ID,
-    ENV_NAME,
-    [CFN_S3_TYPE.Bucket],
-  );
+  const noGen1ResourcesToMoveS3TemplateGenerator = new CategoryTemplateGenerator({
+    logger: new Logger('mock', 'mock', 'mock'),
+    gen1StackId: GEN1_CATEGORY_STACK_ID,
+    gen2StackId: GEN2_CATEGORY_STACK_ID,
+    region: 'us-east-1',
+    accountId: '12345',
+    cfnClient: new CloudFormationClient(),
+    ssmClient: new SSMClient(),
+    cognitoIdpClient: new CognitoIdentityProviderClient(),
+    appId: MOCK_APP_ID,
+    environmentName: ENV_NAME,
+    resourcesToMove: [CFN_S3_TYPE.Bucket],
+  });
 
-  const authTemplateGenerator = new CategoryTemplateGenerator(
-    new Logger('mock', 'mock', 'mock'),
-    GEN1_AUTH_CATEGORY_STACK_ID,
-    GEN2_AUTH_CATEGORY_STACK_ID,
-    'us-east-1',
-    '12345',
-    new CloudFormationClient(),
-    new SSMClient(),
-    new CognitoIdentityProviderClient(),
-    MOCK_APP_ID,
-    ENV_NAME,
-    [CFN_AUTH_TYPE.UserPoolClient, CFN_AUTH_TYPE.UserPool, CFN_AUTH_TYPE.IdentityPool, CFN_AUTH_TYPE.UserPoolDomain],
-  );
+  const authTemplateGenerator = new CategoryTemplateGenerator({
+    logger: new Logger('mock', 'mock', 'mock'),
+    gen1StackId: GEN1_AUTH_CATEGORY_STACK_ID,
+    gen2StackId: GEN2_AUTH_CATEGORY_STACK_ID,
+    region: 'us-east-1',
+    accountId: '12345',
+    cfnClient: new CloudFormationClient(),
+    ssmClient: new SSMClient(),
+    cognitoIdpClient: new CognitoIdentityProviderClient(),
+    appId: MOCK_APP_ID,
+    environmentName: ENV_NAME,
+    resourcesToMove: [CFN_AUTH_TYPE.UserPoolClient, CFN_AUTH_TYPE.UserPool, CFN_AUTH_TYPE.IdentityPool, CFN_AUTH_TYPE.UserPoolDomain],
+  });
 
-  const ddbTemplateGenerator = new CategoryTemplateGenerator(
-    new Logger('mock', 'mock', 'mock'),
-    GEN1_DDB_CATEGORY_STACK_ID,
-    GEN2_DDB_CATEGORY_STACK_ID,
-    'us-east-1',
-    '1234567890',
-    new CloudFormationClient(),
-    new SSMClient(),
-    new CognitoIdentityProviderClient(),
-    MOCK_APP_ID,
-    ENV_NAME,
-    [CFN_DYNAMODB_TYPE.Table],
-  );
+  const ddbTemplateGenerator = new CategoryTemplateGenerator({
+    logger: new Logger('mock', 'mock', 'mock'),
+    gen1StackId: GEN1_DDB_CATEGORY_STACK_ID,
+    gen2StackId: GEN2_DDB_CATEGORY_STACK_ID,
+    region: 'us-east-1',
+    accountId: '1234567890',
+    cfnClient: new CloudFormationClient(),
+    ssmClient: new SSMClient(),
+    cognitoIdpClient: new CognitoIdentityProviderClient(),
+    appId: MOCK_APP_ID,
+    environmentName: ENV_NAME,
+    resourcesToMove: [CFN_DYNAMODB_TYPE.Table],
+  });
 
   it('should preprocess gen1 template prior to refactor', async () => {
     await expect(s3TemplateGenerator.generateGen1PreProcessTemplate()).resolves.toEqual({

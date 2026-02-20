@@ -664,57 +664,54 @@ describe('TemplateGenerator', () => {
     expect(mockGenerateGen2ResourceRemovalTemplate).not.toBeCalled();
     expect(mockGenerateRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - numCategoriesToSkipUpdate);
     expect(CategoryTemplateGenerator).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
-    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(
-      1,
-      new Logger('mock', 'mock', 'mock'),
-      GEN2_AUTH_STACK_ID,
-      GEN1_AUTH_STACK_ID,
-      REGION,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      [
+    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(1, {
+      logger: new Logger('mock', 'mock', 'mock'),
+      gen1StackId: GEN2_AUTH_STACK_ID,
+      gen2StackId: GEN1_AUTH_STACK_ID,
+      region: REGION,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      resourcesToMove: [
         CFN_AUTH_TYPE.UserPool,
         CFN_AUTH_TYPE.UserPoolClient,
         CFN_AUTH_TYPE.IdentityPool,
         CFN_AUTH_TYPE.IdentityPoolRoleAttachment,
         CFN_AUTH_TYPE.UserPoolDomain,
       ],
-      undefined,
-    );
-    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(
-      2,
-      new Logger('mock', 'mock', 'mock'),
-      GEN2_AUTH_STACK_ID,
-      GEN1_AUTH_USER_POOL_GROUP_STACK_ID,
-      REGION,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      [CFN_AUTH_TYPE.UserPoolGroup],
-      undefined,
-    );
-    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(
-      3,
-      new Logger('mock', 'mock', 'mock'),
-      GEN2_STORAGE_STACK_ID,
-      GEN1_STORAGE_STACK_ID,
-      REGION,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      [CFN_S3_TYPE.Bucket, CFN_DYNAMODB_TYPE.Table],
-      undefined,
-    );
+      resourcesToMovePredicate: undefined,
+    });
+    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(2, {
+      logger: new Logger('mock', 'mock', 'mock'),
+      gen1StackId: GEN2_AUTH_STACK_ID,
+      gen2StackId: GEN1_AUTH_USER_POOL_GROUP_STACK_ID,
+      region: REGION,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      resourcesToMove: [CFN_AUTH_TYPE.UserPoolGroup],
+      resourcesToMovePredicate: undefined,
+    });
+    expect(CategoryTemplateGenerator).toHaveBeenNthCalledWith(3, {
+      logger: new Logger('mock', 'mock', 'mock'),
+      gen1StackId: GEN2_STORAGE_STACK_ID,
+      gen2StackId: GEN1_STORAGE_STACK_ID,
+      region: REGION,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      resourcesToMove: [CFN_S3_TYPE.Bucket, CFN_DYNAMODB_TYPE.Table],
+      resourcesToMovePredicate: undefined,
+    });
   }
 
   function assertStackRefactorCommands(
