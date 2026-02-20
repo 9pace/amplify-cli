@@ -112,4 +112,25 @@ describe('CFNParameterResolver', () => {
     const resolvedTemplate = new CfnParameterResolver(template).resolve([]);
     expect(resolvedTemplate).toEqual(template);
   });
+
+  it('should resolve AWS::StackName pseudo-parameter when stackName is provided', () => {
+    const tmpl: CFNTemplate = {
+      ...template,
+      Parameters: { ...template.Parameters, 'AWS::StackName': { Type: 'String' } },
+      Resources: {
+        MyBucket: {
+          Type: 'AWS::S3::Bucket',
+          Properties: { BucketName: { 'Fn::Join': ['-', ['bucket', { Ref: 'AWS::StackName' }]] } },
+        },
+      },
+    };
+    const resolved = new CfnParameterResolver(tmpl, 'my-gen1-stack').resolve([]);
+    expect(resolved.Resources.MyBucket.Properties.BucketName).toEqual({ 'Fn::Join': ['-', ['bucket', 'my-gen1-stack']] });
+  });
+
+  it('should throw when a parameter has no ParameterKey', () => {
+    expect(() => new CfnParameterResolver(template).resolve([{ ParameterValue: 'val' } as any])).toThrow(
+      'CloudFormation returned a stack parameter without a ParameterKey',
+    );
+  });
 });

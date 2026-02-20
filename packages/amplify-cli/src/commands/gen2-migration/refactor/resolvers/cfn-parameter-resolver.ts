@@ -6,7 +6,6 @@ class CfnParameterResolver {
   constructor(private readonly template: CFNTemplate, private readonly stackName: string | undefined = undefined) {}
 
   public resolve(parameters: Parameter[]) {
-    if (!parameters.length) return this.template;
     const clonedParameters = JSON.parse(JSON.stringify(parameters)) as Parameter[];
     const clonedGen1Template = JSON.parse(JSON.stringify(this.template)) as CFNTemplate;
     let templateString = JSON.stringify(clonedGen1Template);
@@ -23,6 +22,7 @@ class CfnParameterResolver {
         ParameterValue: this.stackName,
       });
     }
+    if (!clonedParameters.length) return this.template;
     for (const { ParameterKey, ParameterValue } of clonedParameters) {
       if (!ParameterKey) {
         throw new AmplifyError('InvalidStackError', {
