@@ -2,18 +2,13 @@
 import { AmplifyMigrationStep } from '../_step';
 import { AmplifyMigrationOperation } from '../_operation';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
-import fs from 'fs-extra';
 import { CloudFormationClient } from '@aws-sdk/client-cloudformation';
-import { ResourceMapping } from './types';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { AmplifyGen2MigrationValidations } from '../_validations';
 import { DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { TemplateGenerator } from './generators/template-generator';
-
-// Constants
-const FILE_PROTOCOL_PREFIX = 'file://';
 
 const createAccountIdError = () =>
   new AmplifyError('ConfigurationError', {
@@ -22,31 +17,8 @@ const createAccountIdError = () =>
       'Verify your AWS credentials are configured and have permission to call sts:GetCallerIdentity. Run "aws sts get-caller-identity" to test.',
   });
 
-export function isResourceMappingValid(resourceMapping: unknown): resourceMapping is ResourceMapping {
-  return (
-    typeof resourceMapping === 'object' &&
-    resourceMapping !== null &&
-    'Destination' in resourceMapping &&
-    typeof resourceMapping.Destination === 'object' &&
-    resourceMapping.Destination !== null &&
-    'StackName' in resourceMapping.Destination &&
-    typeof resourceMapping.Destination.StackName === 'string' &&
-    'LogicalResourceId' in resourceMapping.Destination &&
-    typeof resourceMapping.Destination.LogicalResourceId === 'string' &&
-    'Source' in resourceMapping &&
-    typeof resourceMapping.Source === 'object' &&
-    resourceMapping.Source !== null &&
-    'StackName' in resourceMapping.Source &&
-    typeof resourceMapping.Source.StackName === 'string' &&
-    'LogicalResourceId' in resourceMapping.Source &&
-    typeof resourceMapping.Source.LogicalResourceId === 'string'
-  );
-}
-
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   private toStack?: string;
-  private resourceMappings?: string;
-  private parsedResourceMappings?: ResourceMapping[];
 
   public async executeImplications(): Promise<string[]> {
     return ['Move stateful resources from your Gen1 app to be managed by your Gen2 app'];
@@ -75,15 +47,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
           // Extract parameters from context
           this.extractParameters();
 
-          // Process resource mappings if provided
-          if (this.resourceMappings) {
-            await this.processResourceMappings();
-          }
-
-          if (this.parsedResourceMappings) {
-            this.logger.debug(`📊 Using ${this.parsedResourceMappings.length} custom resource mapping(s)`);
-          }
-
           // Execute the stack refactoring
           await this.executeStackRefactor();
         },
@@ -105,7 +68,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
 
   private extractParameters(): void {
     this.toStack = this.context.parameters?.options?.to;
-    this.resourceMappings = this.context.parameters?.options?.resourceMappings;
 
     if (!this.toStack) {
       throw new AmplifyError('InputValidationError', { message: '--to is required' });
@@ -117,75 +79,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     this.logger.info('🔧 Executing CloudFormation stack rollback...');
     await templateGenerator.rollback();
     await this.emitUsageAnalytics(this.currentEnvName, true);
-  }
-
-  private async processResourceMappings(): Promise<void> {
-    if (!this.resourceMappings) return;
-
-    this.logger.info(`📋 Processing resource mappings from: ${this.resourceMappings}`);
-
-    // Validate file protocol prefix
-    if (!this.resourceMappings.startsWith(FILE_PROTOCOL_PREFIX)) {
-      throw new AmplifyError('InputValidationError', {
-        message: `Resource mappings path must start with ${FILE_PROTOCOL_PREFIX}`,
-        resolution: `Use the format: ${FILE_PROTOCOL_PREFIX}/path/to/mappings.json`,
-      });
-    }
-
-    // Extract file path
-    const resourceMapPath = this.resourceMappings.split(FILE_PROTOCOL_PREFIX)[1];
-    if (!resourceMapPath) {
-      throw new AmplifyError('InputValidationError', {
-        message: 'Invalid resource mappings path',
-        resolution: `Use the format: ${FILE_PROTOCOL_PREFIX}/path/to/file.json`,
-      });
-    }
-
-    // Read and parse the file
-    try {
-      if (!(await fs.pathExists(resourceMapPath))) {
-        throw new AmplifyError('ResourceDoesNotExistError', {
-          message: `Resource mappings file not found: ${resourceMapPath}`,
-          resolution: 'Ensure the file exists and the path is correct.',
-        });
-      }
-
-      const fileContent = await fs.readFile(resourceMapPath, 'utf-8');
-      this.logger.info('✅ Resource mappings file loaded successfully');
-
-      try {
-        this.parsedResourceMappings = JSON.parse(fileContent);
-        this.logger.info(`📊 Found ${this.parsedResourceMappings?.length || 0} resource mapping(s)`);
-      } catch (parseError) {
-        throw new AmplifyError('InputValidationError', {
-          message: `Failed to parse JSON from resource mappings file: ${
-            parseError instanceof Error ? parseError.message : 'Invalid JSON format'
-          }`,
-          resolution: 'Ensure the file contains valid JSON.',
-        });
-      }
-
-      // Validate structure
-      if (!Array.isArray(this.parsedResourceMappings) || !this.parsedResourceMappings.every(isResourceMappingValid)) {
-        throw new AmplifyError('InputValidationError', {
-          message: 'Invalid resource mappings structure',
-          resolution: 'Each mapping must have Source and Destination objects with StackName and LogicalResourceId properties.',
-        });
-      }
-
-      this.logger.info('✅ Resource mappings validated successfully');
-    } catch (error) {
-      if (error instanceof AmplifyError) {
-        throw error;
-      }
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        throw new AmplifyError('ResourceDoesNotExistError', {
-          message: `Resource mappings file not found: ${resourceMapPath}`,
-          resolution: 'Ensure the file exists and the path is correct.',
-        });
-      }
-      throw error;
-    }
   }
 
   private async executeStackRefactor(): Promise<void> {
@@ -207,7 +100,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     this.logger.info('🔧 Executing CloudFormation stack refactor...');
     this.logger.info(`📋 Selected categories: ${selectedCategories.join(', ')}`);
 
-    const success = await templateGenerator.generateSelectedCategories(selectedCategories, this.parsedResourceMappings);
+    const success = await templateGenerator.generateSelectedCategories(selectedCategories);
 
     if (success) {
       // Emit usage analytics

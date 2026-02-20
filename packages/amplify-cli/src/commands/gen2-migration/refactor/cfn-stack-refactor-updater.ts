@@ -16,7 +16,6 @@ const POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 12000;
 const COMPLETION_STATE = '_COMPLETE';
 const FAILED_STATE = '_FAILED';
-export const UPDATE_COMPLETE = 'UPDATE_COMPLETE';
 /**
  * Refactors a stack with given source and destination template.
  * @param cfnClient

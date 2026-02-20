@@ -177,66 +177,6 @@ const newGen1Template: CFNTemplate = {
   },
 };
 
-const newGen1TemplateWithPredicate: CFNTemplate = {
-  AWSTemplateFormatVersion: '2010-09-09',
-  Description: 'Test template',
-  Parameters: {
-    Environment: {
-      Type: 'String',
-      Description: 'Environment',
-    },
-    hostedUIProviderMeta: {
-      Type: 'String',
-      Description: 'HostedUIProviderMeta',
-    },
-    hostedUIProviderCreds: {
-      Type: 'String',
-      Description: 'HostedUIProviderCreds',
-      NoEcho: true,
-    },
-  },
-  Outputs: {
-    BucketNameOutputRef: {
-      Description: 'Bucket name',
-      Value: 'my-test-bucket-dev',
-    },
-    UserPoolId: {
-      Description: 'User pool id',
-      Value: 'userPoolId',
-    },
-  },
-  Resources: {
-    [GEN1_S3_BUCKET_LOGICAL_ID]: {
-      Type: CFN_S3_TYPE.Bucket,
-      Properties: {
-        BucketName: { 'Fn::Join': ['-', ['my-test-bucket', 'dev', GEN1_STORAGE_CATEGORY_STACK_NAME]] },
-      },
-    },
-    MyS3BucketPolicy: {
-      Type: 'AWS::IAM::Policy',
-      Properties: {
-        PolicyName: 'MyS3BucketPolicy',
-        PolicyDocument: {
-          Statement: [
-            {
-              Effect: 'Allow',
-              Action: 's3:GetObject',
-              Resource: 'arn:aws:s3:::my-test-bucket-dev',
-            },
-          ],
-        },
-      },
-    },
-    [GEN1_ANOTHER_S3_BUCKET_LOGICAL_ID]: {
-      Type: CFN_S3_TYPE.Bucket,
-      Properties: {
-        BucketName: 'my-other-s3-bucket',
-      },
-      DependsOn: [],
-    },
-  },
-};
-
 const oldGen2Template = {
   ...oldGen1Template,
   Outputs: {
@@ -873,22 +813,6 @@ describe('CategoryTemplateGenerator', () => {
     resourcesToMove: [CFN_S3_TYPE.Bucket],
   });
 
-  const s3TemplateGeneratorWithPredicate = new CategoryTemplateGenerator({
-    logger: new Logger('mock', 'mock', 'mock'),
-    gen1StackId: GEN1_CATEGORY_STACK_ID,
-    gen2StackId: GEN2_CATEGORY_STACK_ID,
-    region: 'us-east-1',
-    accountId: '12345',
-    cfnClient: new CloudFormationClient(),
-    ssmClient: new SSMClient(),
-    cognitoIdpClient: new CognitoIdentityProviderClient(),
-    appId: MOCK_APP_ID,
-    environmentName: ENV_NAME,
-    resourcesToMove: [CFN_S3_TYPE.Bucket],
-    resourcesToMovePredicate: (resourcesToMove, resourceEntry) =>
-      resourcesToMove.includes(CFN_S3_TYPE.Bucket) && resourceEntry[0] === GEN1_S3_BUCKET_LOGICAL_ID,
-  });
-
   const noGen1ResourcesToMoveS3TemplateGenerator = new CategoryTemplateGenerator({
     logger: new Logger('mock', 'mock', 'mock'),
     gen1StackId: GEN1_CATEGORY_STACK_ID,
@@ -939,14 +863,6 @@ describe('CategoryTemplateGenerator', () => {
     });
   });
 
-  it('should preprocess gen1 template with predicate prior to refactor', async () => {
-    await expect(s3TemplateGeneratorWithPredicate.generateGen1PreProcessTemplate()).resolves.toEqual({
-      oldTemplate: oldGen1Template,
-      newTemplate: newGen1TemplateWithPredicate,
-      parameters: gen1Params,
-    });
-  });
-
   it('should remove gen2 resources from gen2 stack prior to refactor', async () => {
     await expect(s3TemplateGenerator.generateGen2ResourceRemovalTemplate()).resolves.toEqual({
       oldTemplate: oldGen2Template,
@@ -991,7 +907,7 @@ describe('CategoryTemplateGenerator', () => {
     );
   });
 
-  it('should throw error when there are no resources to move in Gen1 stack', async () => {
+  it('should return undefined when there are no resources to move in Gen1 stack', async () => {
     const sendFailureMock = (command: any) => {
       if (command instanceof DescribeStacksCommand) {
         return Promise.resolve(generateDescribeStacksResponse(command));
@@ -1006,12 +922,11 @@ describe('CategoryTemplateGenerator', () => {
       return Promise.resolve({});
     };
     stubCfnClientSend.mockImplementationOnce(sendFailureMock).mockImplementationOnce(sendFailureMock);
-    await expect(noGen1ResourcesToMoveS3TemplateGenerator.generateGen1PreProcessTemplate()).rejects.toThrowError(
-      'No resources to move in Gen1 stack.',
-    );
+    const result = await noGen1ResourcesToMoveS3TemplateGenerator.generateGen1PreProcessTemplate();
+    expect(result).toBeUndefined();
   });
 
-  it('should throw error when there are no resources to move in Gen2 stack', async () => {
+  it('should return undefined when there are no resources to move in Gen2 stack', async () => {
     const sendFailureMock = (command: any) => {
       if (command instanceof DescribeStacksCommand) {
         return Promise.resolve(generateDescribeStacksResponse(command));
@@ -1046,9 +961,8 @@ describe('CategoryTemplateGenerator', () => {
       .mockImplementationOnce(sendFailureMock)
       .mockImplementationOnce(sendFailureMock);
     await noGen1ResourcesToMoveS3TemplateGenerator.generateGen1PreProcessTemplate();
-    await expect(noGen1ResourcesToMoveS3TemplateGenerator.generateGen2ResourceRemovalTemplate()).rejects.toThrowError(
-      'No resources to remove in Gen2 stack.',
-    );
+    const result = await noGen1ResourcesToMoveS3TemplateGenerator.generateGen2ResourceRemovalTemplate();
+    expect(result).toBeUndefined();
   });
 
   it('should refactor DynamoDB gen1 resources into gen2 stack', async () => {
@@ -1062,5 +976,25 @@ describe('CategoryTemplateGenerator', () => {
     expect(sourceTemplate).toEqual<CFNTemplate>(refactoredGen1DDBTemplate);
     expect(destinationTemplate).toEqual<CFNTemplate>(refactoredGen2DDBTemplate);
     expect(logicalIdMapping).toEqual(new Map<string, string>([[GEN1_DDB_TABLE_LOGICAL_ID, GEN2_DDB_TABLE_LOGICAL_ID]]));
+  });
+
+  it('should throw when generateStackRefactorTemplates is called without calling generate methods first', () => {
+    const freshGenerator = new CategoryTemplateGenerator({
+      logger: new Logger('mock', 'mock', 'mock'),
+      gen1StackId: GEN1_CATEGORY_STACK_ID,
+      gen2StackId: GEN2_CATEGORY_STACK_ID,
+      region: 'us-east-1',
+      accountId: '12345',
+      cfnClient: new CloudFormationClient(),
+      ssmClient: new SSMClient(),
+      cognitoIdpClient: new CognitoIdentityProviderClient(),
+      appId: MOCK_APP_ID,
+      environmentName: ENV_NAME,
+      resourcesToMove: [CFN_S3_TYPE.Bucket],
+    });
+    const emptyTemplate = { Resources: {}, Description: '', AWSTemplateFormatVersion: '', Outputs: {} } as CFNTemplate;
+    expect(() => freshGenerator.generateStackRefactorTemplates(emptyTemplate, emptyTemplate)).toThrow(
+      'No resources identified for refactoring',
+    );
   });
 });

@@ -1,10 +1,6 @@
 import { CloudFormationClient, DescribeStacksCommand, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
-import {
-  tryUpdateStack,
-  pollStackForCompletionState,
-  UPDATE_COMPLETE,
-} from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
-import { CFNTemplate } from '../../../../commands/gen2-migration/refactor/types';
+import { tryUpdateStack, pollStackForCompletionState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
+import { CFNStackStatus, CFNTemplate } from '../../../../commands/gen2-migration/refactor/types';
 
 jest.useFakeTimers();
 
@@ -45,7 +41,7 @@ describe('tryUpdateStack', () => {
     });
 
     const result = await tryUpdateStack(cfnClient, STACK_NAME, [], TEMPLATE);
-    expect(result).toBe(UPDATE_COMPLETE);
+    expect(result).toBe(CFNStackStatus.UPDATE_COMPLETE);
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 

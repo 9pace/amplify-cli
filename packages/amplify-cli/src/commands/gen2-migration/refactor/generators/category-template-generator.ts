@@ -3,6 +3,7 @@ import {
   DescribeStacksCommand,
   DescribeStackResourcesCommand,
   GetTemplateCommand,
+  Output,
   Stack,
   Parameter,
 } from '@aws-sdk/client-cloudformation';
@@ -10,13 +11,12 @@ import { SSMClient } from '@aws-sdk/client-ssm';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 import {
   CFN_AUTH_TYPE,
-  CFN_CATEGORY_TYPE,
   CFN_IAM_TYPE,
   CFNChangeTemplateWithParams,
   CFNResource,
   CFNStackRefactorTemplates,
   CFNTemplate,
-  NoResourcesError,
+  CFN_RESOURCE_TYPES,
 } from '../types';
 import CFNConditionResolver from '../resolvers/cfn-condition-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
@@ -38,7 +38,7 @@ const RESOURCE_TYPES_WITH_MULTIPLE_RESOURCES = [
   CFN_IAM_TYPE.Role.valueOf(),
 ];
 
-export interface CategoryTemplateGeneratorConfig<CFNCategoryType extends CFN_CATEGORY_TYPE> {
+export interface CategoryTemplateGeneratorConfig {
   logger: Logger;
   gen1StackId: string;
   gen2StackId: string;
@@ -49,12 +49,10 @@ export interface CategoryTemplateGeneratorConfig<CFNCategoryType extends CFN_CAT
   cognitoIdpClient: CognitoIdentityProviderClient;
   appId: string;
   environmentName: string;
-  resourcesToMove: CFNCategoryType[];
-  resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean;
+  resourcesToMove: CFN_RESOURCE_TYPES[];
 }
 
-class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
-  private gen1DescribeStacksResponse: Stack | undefined;
+class CategoryTemplateGenerator {
   private gen2DescribeStacksResponse: Stack | undefined;
   private _gen1ResourcesToMove: Map<string, CFNResource>;
   private _gen2ResourcesToRemove: Map<string, CFNResource>;
@@ -70,10 +68,9 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private readonly cognitoIdpClient: CognitoIdentityProviderClient;
   private readonly appId: string;
   private readonly environmentName: string;
-  private readonly resourcesToMove: CFNCategoryType[];
-  private readonly resourcesToMovePredicate?: (resourcesToMove: CFN_CATEGORY_TYPE[], resourceEntry: [string, CFNResource]) => boolean;
+  private readonly resourcesToMove: CFN_RESOURCE_TYPES[];
 
-  constructor(config: CategoryTemplateGeneratorConfig<CFNCategoryType>) {
+  constructor(config: CategoryTemplateGeneratorConfig) {
     this.logger = config.logger;
     this.gen1StackId = config.gen1StackId;
     this.gen2StackId = config.gen2StackId;
@@ -85,7 +82,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     this.appId = config.appId;
     this.environmentName = config.environmentName;
     this.resourcesToMove = config.resourcesToMove;
-    this.resourcesToMovePredicate = config.resourcesToMovePredicate;
     this._gen1ResourcesToMove = new Map();
     this._gen2ResourcesToRemove = new Map();
   }
@@ -117,17 +113,17 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
    * resolved to static values. Otherwise, references pointing to resources that will
    * be removed would break the stack.
    */
-  public async generateGen1PreProcessTemplate(): Promise<CFNChangeTemplateWithParams> {
+  public async generateGen1PreProcessTemplate(): Promise<CFNChangeTemplateWithParams | undefined> {
     this.logger.debug(`Gen1 Stack ID: ${this.gen1StackId}`);
 
-    this.gen1DescribeStacksResponse = await this.describeStack(this.gen1StackId);
-    if (!this.gen1DescribeStacksResponse) {
+    const gen1DescribeStacksResponse = await this.describeStack(this.gen1StackId);
+    if (!gen1DescribeStacksResponse) {
       throw new AmplifyError('InvalidStackError', {
         message: `Failed to describe Gen1 stack '${this.gen1StackId}'`,
         resolution: 'Ensure the stack exists and is accessible.',
       });
     }
-    const { Parameters, Outputs } = this.gen1DescribeStacksResponse;
+    const { Parameters, Outputs } = gen1DescribeStacksResponse;
     if (!Parameters) {
       throw new AmplifyError('InvalidStackError', {
         message: `Gen1 stack '${this.gen1StackId}' has no parameters`,
@@ -146,11 +142,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     const oldGen1Template = await this.readTemplate(this.gen1StackId);
     this.logger.debug(`Gen1 Template Resources count: ${Object.keys(oldGen1Template.Resources).length}`);
     this._gen1ResourcesToMove = new Map(
-      Object.entries(oldGen1Template.Resources).filter(([logicalId, value]) => {
-        return (
-          this.resourcesToMovePredicate?.(this.resourcesToMove, [logicalId, value]) ??
-          this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type)
-        );
+      Object.entries(oldGen1Template.Resources).filter(([, value]) => {
+        return this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type);
       }),
     );
     this.logger.debug(`Gen1 Resources to move: ${Array.from(this._gen1ResourcesToMove.keys())}`);
@@ -161,8 +154,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }
     }
 
-    // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this._gen1ResourcesToMove.size === 0) throw new NoResourcesError('No resources to move in Gen1 stack.');
+    if (this._gen1ResourcesToMove.size === 0) return undefined;
     const logicalResourceIds = [...this._gen1ResourcesToMove.keys()];
 
     const gen1ParametersResolvedTemplate = new CfnParameterResolver(oldGen1Template, extractStackNameFromId(this.gen1StackId)).resolve(
@@ -196,32 +188,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       };
     }
 
-    const oAuthProvidersParam = Parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
-    if (oAuthProvidersParam) {
-      const userPoolId = Outputs.find((op) => op.OutputKey === USER_POOL_ID_OUTPUT_KEY_NAME)?.OutputValue;
-      if (!userPoolId) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `Gen1 stack output '${USER_POOL_ID_OUTPUT_KEY_NAME}' not found`,
-          resolution: 'Ensure the Gen1 auth stack has a UserPoolId output.',
-        });
-      }
-      const oAuthValues = await retrieveOAuthValues({
-        ssmClient: this.ssmClient,
-        cognitoIdpClient: this.cognitoIdpClient,
-        appId: this.appId,
-        environmentName: this.environmentName,
-        oAuthParameter: oAuthProvidersParam,
-        userPoolId,
-      });
-      const oAuthProviderCredentialsParam = Parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME);
-      if (!oAuthProviderCredentialsParam) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `Gen1 stack parameter '${HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME}' not found`,
-          resolution: 'Ensure the Gen1 auth stack has the hostedUIProviderCreds parameter when OAuth is enabled.',
-        });
-      }
-      oAuthProviderCredentialsParam.ParameterValue = JSON.stringify(oAuthValues);
-    }
+    await this.resolveOAuthCredentials(Parameters, Outputs);
+
     return {
       oldTemplate: oldGen1Template,
       newTemplate: gen1TemplateWithConditionsResolved,
@@ -229,7 +197,41 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     };
   }
 
-  public async generateGen2ResourceRemovalTemplate(): Promise<CFNChangeTemplateWithParams> {
+  /**
+   * If OAuth is configured, fetches provider credentials from Cognito/SSM
+   * and writes them into the hostedUIProviderCreds parameter.
+   * Mutates the Parameters array in-place.
+   */
+  private async resolveOAuthCredentials(parameters: Parameter[], outputs: Output[]): Promise<void> {
+    const oAuthProvidersParam = parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
+    if (!oAuthProvidersParam) return;
+
+    const userPoolId = outputs.find((op) => op.OutputKey === USER_POOL_ID_OUTPUT_KEY_NAME)?.OutputValue;
+    if (!userPoolId) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen1 stack output '${USER_POOL_ID_OUTPUT_KEY_NAME}' not found`,
+        resolution: 'Ensure the Gen1 auth stack has a UserPoolId output.',
+      });
+    }
+    const oAuthValues = await retrieveOAuthValues({
+      ssmClient: this.ssmClient,
+      cognitoIdpClient: this.cognitoIdpClient,
+      appId: this.appId,
+      environmentName: this.environmentName,
+      oAuthParameter: oAuthProvidersParam,
+      userPoolId,
+    });
+    const oAuthProviderCredentialsParam = parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME);
+    if (!oAuthProviderCredentialsParam) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen1 stack parameter '${HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME}' not found`,
+        resolution: 'Ensure the Gen1 auth stack has the hostedUIProviderCreds parameter when OAuth is enabled.',
+      });
+    }
+    oAuthProviderCredentialsParam.ParameterValue = JSON.stringify(oAuthValues);
+  }
+
+  public async generateGen2ResourceRemovalTemplate(): Promise<CFNChangeTemplateWithParams | undefined> {
     this.logger.debug(`Gen2 Stack ID: ${this.gen2StackId}`);
 
     this.gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
@@ -257,11 +259,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     this._gen2Template = oldGen2Template;
 
     this._gen2ResourcesToRemove = new Map(
-      Object.entries(oldGen2Template.Resources).filter(([logicalId, value]) => {
-        return (
-          this.resourcesToMovePredicate?.(this.resourcesToMove, [logicalId, value]) ??
-          this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type)
-        );
+      Object.entries(oldGen2Template.Resources).filter(([, value]) => {
+        return this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type);
       }),
     );
     this.logger.debug(`Gen2 Resources to remove: ${Array.from(this._gen2ResourcesToRemove.keys())}`);
@@ -272,8 +271,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }
     }
 
-    // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this._gen2ResourcesToRemove.size === 0) throw new NoResourcesError('No resources to remove in Gen2 stack.');
+    if (this._gen2ResourcesToRemove.size === 0) return undefined;
     const logicalResourceIds = [...this._gen2ResourcesToRemove.keys()];
 
     const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);
@@ -285,6 +283,12 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   }
 
   public generateStackRefactorTemplates(gen1Template: CFNTemplate, gen2Template: CFNTemplate): CFNStackRefactorTemplates {
+    if (this._gen1ResourcesToMove.size === 0 && this._gen2ResourcesToRemove.size === 0) {
+      throw new AmplifyError('InvalidStackError', {
+        message: 'No resources identified for refactoring',
+        resolution: 'Call generateGen1PreProcessTemplate() and generateGen2ResourceRemovalTemplate() before generating refactor templates.',
+      });
+    }
     return this.generateRefactorTemplates(this._gen1ResourcesToMove, this._gen2ResourcesToRemove, gen1Template, gen2Template);
   }
 

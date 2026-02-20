@@ -1,5 +1,5 @@
 import { CloudFormationClient, DescribeStacksCommand, Parameter, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
-import { CFNTemplate } from './types';
+import { CFNStackStatus, CFNTemplate } from './types';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 120;
@@ -7,7 +7,6 @@ const POLL_INTERVAL_MS = 5 * 1000;
 const NO_UPDATES_MESSAGE = 'No updates are to be performed';
 const CFN_IAM_CAPABILIY = 'CAPABILITY_NAMED_IAM';
 const COMPLETION_STATE = '_COMPLETE';
-export const UPDATE_COMPLETE = 'UPDATE_COMPLETE';
 /**
  * Updates a stack with given template. If no updates are present, it no-ops.
  * @param cfnClient
@@ -38,7 +37,7 @@ export async function tryUpdateStack(
     if (!(e && typeof e === 'object' && 'message' in e && typeof e.message === 'string' && e.message.includes(NO_UPDATES_MESSAGE))) {
       throw e;
     }
-    return UPDATE_COMPLETE;
+    return CFNStackStatus.UPDATE_COMPLETE;
   }
 }
 

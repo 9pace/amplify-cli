@@ -18,13 +18,12 @@ import fs from 'node:fs/promises';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import {
-  CATEGORY,
   CFN_AUTH_TYPE,
   CFN_S3_TYPE,
   CFN_DYNAMODB_TYPE,
   CFN_IAM_TYPE,
   CFNTemplate,
-  NoResourcesError,
+  NON_CUSTOM_RESOURCE_CATEGORY,
 } from '../../../../../commands/gen2-migration/refactor/types';
 
 import assert from 'node:assert';
@@ -40,7 +39,7 @@ const mockGenerateRefactorTemplates = jest.fn();
 const mockReadTemplate = jest.fn();
 const mockDescribeStack = jest.fn();
 const REGION = 'us-east-1';
-const getStackId = (stackName: string, category: CATEGORY) => {
+const getStackId = (stackName: string, category: NON_CUSTOM_RESOURCE_CATEGORY) => {
   // In Gen1, user pool group and auth are their own stacks. In Gen2, they are combined into 1.
   const resolvedCategory = stackName === GEN2_ROOT_STACK_NAME && category === 'auth-user-pool-group' ? 'auth' : category;
   return `arn:aws:cloudformation:${REGION}:${ACCOUNT_ID}:stack/${stackName}-${resolvedCategory}/12345`;
@@ -50,11 +49,11 @@ const NUM_CATEGORIES_TO_REFACTOR = 3;
 const ACCOUNT_ID = 'TEST_ACCOUNT_ID';
 const GEN1_ROOT_STACK_NAME = 'amplify-gen1-dev-12345';
 const GEN2_ROOT_STACK_NAME = 'amplify-gen2-test-sandbox-12345';
-const GEN1_AUTH_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, 'auth');
-const GEN1_AUTH_USER_POOL_GROUP_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, 'auth-user-pool-group');
-const GEN2_AUTH_STACK_ID = getStackId(GEN2_ROOT_STACK_NAME, 'auth');
-const GEN1_STORAGE_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, 'storage');
-const GEN2_STORAGE_STACK_ID = getStackId(GEN2_ROOT_STACK_NAME, 'storage');
+const GEN1_AUTH_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.AUTH);
+const GEN1_AUTH_USER_POOL_GROUP_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP);
+const GEN2_AUTH_STACK_ID = getStackId(GEN2_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.AUTH);
+const GEN1_STORAGE_STACK_ID = getStackId(GEN1_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.STORAGE);
+const GEN2_STORAGE_STACK_ID = getStackId(GEN2_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.STORAGE);
 const GEN1_S3_BUCKET_LOGICAL_ID = 'S3Bucket';
 const GEN2_S3_BUCKET_LOGICAL_ID = 'Gen2S3Bucket';
 const GEN1_DDB_TABLE_LOGICAL_ID = 'DynamoDBTable';
@@ -133,14 +132,14 @@ const mockDescribeGen2StackResources: DescribeStackResourcesOutput = {
       ResourceType: 'AWS::CloudFormation::Stack',
       ResourceStatus: 'CREATE_COMPLETE',
       LogicalResourceId: 'auth',
-      PhysicalResourceId: getStackId(GEN2_ROOT_STACK_NAME, 'auth'),
+      PhysicalResourceId: getStackId(GEN2_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.AUTH),
       Timestamp: new Date(),
     },
     {
       ResourceType: 'AWS::CloudFormation::Stack',
       ResourceStatus: 'CREATE_COMPLETE',
       LogicalResourceId: 'storage',
-      PhysicalResourceId: getStackId(GEN2_ROOT_STACK_NAME, 'storage'),
+      PhysicalResourceId: getStackId(GEN2_ROOT_STACK_NAME, NON_CUSTOM_RESOURCE_CATEGORY.STORAGE),
       Timestamp: new Date(),
     },
     {
@@ -488,9 +487,7 @@ describe('TemplateGenerator', () => {
   });
 
   it('should skip categories that have already been refactored when using generateSelectedCategories', async () => {
-    mockGenerateGen1PreProcessTemplate.mockImplementationOnce(() => {
-      throw new NoResourcesError('No resources to move in Gen1 stack');
-    });
+    mockGenerateGen1PreProcessTemplate.mockResolvedValueOnce(undefined);
     const generator = new TemplateGenerator({
       gen1RootStack: GEN1_ROOT_STACK_NAME,
       gen2RootStack: GEN2_ROOT_STACK_NAME,
@@ -511,6 +508,34 @@ describe('TemplateGenerator', () => {
     // One category skipped, so gen2 removal and refactor called one fewer time
     expect(mockGenerateGen2ResourceRemovalTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - 1);
     expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR - 1);
+  });
+
+  it('should proceed with refactor when Gen2 has no resources to remove but Gen1 does', async () => {
+    // Asymmetric case: Gen1 has resources to move, Gen2 has no matching resources to remove.
+    // processGen2Stack should use the fallback (current template) and still call generateStackRefactorTemplates.
+    mockGenerateGen2ResourceRemovalTemplate.mockResolvedValueOnce(undefined);
+    (stubCategoryTemplateGenerator as any).gen2Template = { Resources: {} };
+    (stubCategoryTemplateGenerator as any).gen2StackParameters = [];
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN1_ROOT_STACK_NAME,
+      gen2RootStack: GEN2_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
+    await generator.initializeForAssessment();
+    const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
+
+    expect(result).toBe(true);
+    expect(mockGenerateGen1PreProcessTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+    expect(mockGenerateGen2ResourceRemovalTemplate).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
+    // All categories still proceed to refactor — Gen2 returning undefined doesn't skip the category
+    expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
   });
 
   it('should throw when no applicable destination category exists during initializeForAssessment', async () => {
@@ -618,9 +643,9 @@ describe('TemplateGenerator', () => {
 
     // Assert
     successfulRollbackAssertions();
-    assertRefactorSequenceForCategory('auth', true);
-    assertRefactorSequenceForCategory('auth-user-pool-group', true);
-    assertRefactorSequenceForCategory('storage', true);
+    assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH, true);
+    assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, true);
+    assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.STORAGE, true);
   });
 
   it('should rollback resources from Gen2 to Gen1 successfully, skipping categories that have already been updated previously', async () => {
@@ -645,8 +670,8 @@ describe('TemplateGenerator', () => {
 
     // Assert
     successfulRollbackAssertions(1);
-    assertRefactorSequenceForCategory('auth', true);
-    assertRefactorSequenceForCategory('auth-user-pool-group', true);
+    assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH, true);
+    assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, true);
   });
 
   function successfulRollbackAssertions(numCategoriesToSkipUpdate = 0) {
@@ -710,7 +735,7 @@ describe('TemplateGenerator', () => {
    * and stack definitions for the given category. Uses command-type filtering instead of
    * fragile call-index tracking.
    */
-  function assertRefactorSequenceForCategory(category: CATEGORY, isRevert: boolean) {
+  function assertRefactorSequenceForCategory(category: NON_CUSTOM_RESOURCE_CATEGORY, isRevert: boolean) {
     const sourceStackName = isRevert ? getStackId(GEN2_ROOT_STACK_NAME, category) : getStackId(GEN1_ROOT_STACK_NAME, category);
     const destinationStackName = isRevert ? getStackId(GEN1_ROOT_STACK_NAME, category) : getStackId(GEN2_ROOT_STACK_NAME, category);
 

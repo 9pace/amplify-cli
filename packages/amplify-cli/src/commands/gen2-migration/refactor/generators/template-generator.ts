@@ -1,17 +1,10 @@
-import {
-  CloudFormationClient,
-  DescribeStackResourcesCommand,
-  DescribeStacksCommand,
-  GetTemplateCommand,
-  Parameter,
-} from '@aws-sdk/client-cloudformation';
+import { CloudFormationClient, DescribeStackResourcesCommand, GetTemplateCommand, Parameter } from '@aws-sdk/client-cloudformation';
 import CategoryTemplateGenerator from './category-template-generator';
+import { discoverCategoryStacks } from './stack-discovery';
 import fs from 'node:fs/promises';
 import {
-  CATEGORY,
   NON_CUSTOM_RESOURCE_CATEGORY,
   CFN_AUTH_TYPE,
-  CFN_CATEGORY_TYPE,
   CFN_RESOURCE_TYPES,
   CFN_S3_TYPE,
   CFN_DYNAMODB_TYPE,
@@ -20,7 +13,6 @@ import {
   CFNTemplate,
   ResourceMapping,
   CFN_ANALYTICS_TYPE,
-  NoResourcesError,
   CategoryRefactorResult,
 } from '../types';
 import { pollStackForCompletionState, tryUpdateStack } from '../cfn-stack-updater';
@@ -33,11 +25,9 @@ import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
 import { Logger } from '../../../gen2-migration';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
-const CFN_RESOURCE_STACK_TYPE = 'AWS::CloudFormation::Stack';
 const GEN2_AMPLIFY_AUTH_LOGICAL_ID_PREFIX = 'amplifyAuth';
 const CDK_HASH_LENGTH = 8;
 
-const CATEGORIES: CATEGORY[] = ['auth', 'storage', 'analytics'];
 const TEMPLATES_DIR = '.amplify/migration/templates';
 
 const GEN1 = 'Gen 1';
@@ -64,15 +54,13 @@ const GEN1_RESOURCE_TYPE_TO_LOGICAL_RESOURCE_IDS_MAP = new Map<string, string>([
   [CFN_DYNAMODB_TYPE.Table.valueOf(), 'DynamoDBTable'],
   [CFN_ANALYTICS_TYPE.Stream.valueOf(), 'KinesisStream'],
 ]);
-const LOGICAL_IDS_TO_REMOVE_FOR_ROLLBACK_MAP = new Map<CATEGORY, CFN_RESOURCE_TYPES[]>([
-  ['auth', AUTH_RESOURCES_TO_REFACTOR],
-  ['auth-user-pool-group', AUTH_USER_POOL_GROUP_RESOURCES_TO_REFACTOR],
-  ['storage', [CFN_S3_TYPE.Bucket, CFN_DYNAMODB_TYPE.Table]],
-  ['analytics', ANALYTICS_RESOURCES_TO_REFACTOR],
+const LOGICAL_IDS_TO_REMOVE_FOR_ROLLBACK_MAP = new Map<NON_CUSTOM_RESOURCE_CATEGORY, CFN_RESOURCE_TYPES[]>([
+  [NON_CUSTOM_RESOURCE_CATEGORY.AUTH, AUTH_RESOURCES_TO_REFACTOR],
+  [NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, AUTH_USER_POOL_GROUP_RESOURCES_TO_REFACTOR],
+  [NON_CUSTOM_RESOURCE_CATEGORY.STORAGE, [CFN_S3_TYPE.Bucket, CFN_DYNAMODB_TYPE.Table]],
+  [NON_CUSTOM_RESOURCE_CATEGORY.ANALYTICS, ANALYTICS_RESOURCES_TO_REFACTOR],
 ]);
 const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
-const GEN1_USER_POOL_GROUPS_STACK_TYPE_DESCRIPTION = 'auth-Cognito-UserPool-Groups';
-const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
 
 /**
  * Orchestrates CloudFormation stack refactoring between Gen1 and Gen2 stacks.
@@ -81,152 +69,6 @@ const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
  * If it crosses 1000 lines or gains methods outside this pipeline flow, revisit decomposition.
  * See git history for the analysis that deferred the split (KIRO-refactor branch).
  */
-/**
- * Discovers and maps category nested stacks between Gen1 and Gen2 root stacks.
- *
- * Queries both root stacks for their nested stacks, matches them by category,
- * and returns a map of category → [sourceStackId, destinationStackId].
- *
- * Special handling for auth: Gen1 may have separate stacks for UserPool vs UserPoolGroups,
- * while Gen2 combines them into one stack.
- */
-async function discoverCategoryStacks(
-  cfnClient: CloudFormationClient,
-  gen1RootStack: string,
-  gen2RootStack: string,
-  isRollback: boolean,
-): Promise<Map<CATEGORY, [string, string]>> {
-  const categoryStackMap = new Map<CATEGORY, [string, string]>();
-
-  const sourceStackResourcesResponse = await cfnClient.send(new DescribeStackResourcesCommand({ StackName: gen1RootStack }));
-  const destStackResourcesResponse = await cfnClient.send(new DescribeStackResourcesCommand({ StackName: gen2RootStack }));
-
-  const sourceStackResources = sourceStackResourcesResponse.StackResources;
-  const destStackResources = destStackResourcesResponse.StackResources;
-  if (!sourceStackResources) {
-    throw new AmplifyError('InvalidStackError', {
-      message: 'No source stack resources found',
-      resolution: 'Ensure the source stack exists and is in a stable state.',
-    });
-  }
-  if (!destStackResources) {
-    throw new AmplifyError('InvalidStackError', {
-      message: 'No destination stack resources found',
-      resolution: 'Ensure the destination stack exists and is in a stable state.',
-    });
-  }
-
-  const sourceCategoryStacks = sourceStackResources.filter((r) => r.ResourceType === CFN_RESOURCE_STACK_TYPE);
-  const destinationCategoryStacks = destStackResources.filter((r) => r.ResourceType === CFN_RESOURCE_STACK_TYPE);
-  if (!sourceCategoryStacks || sourceCategoryStacks.length === 0) {
-    throw new AmplifyError('InvalidStackError', {
-      message: 'No nested category stacks found in source stack',
-      resolution: 'Ensure the source stack contains nested category stacks (auth, storage, etc.).',
-    });
-  }
-  if (!destinationCategoryStacks || destinationCategoryStacks.length === 0) {
-    throw new AmplifyError('InvalidStackError', {
-      message: 'No nested category stacks found in destination stack',
-      resolution: 'Ensure the destination stack contains nested category stacks (auth, storage, etc.).',
-    });
-  }
-
-  for (const { LogicalResourceId: sourceLogicalResourceId, PhysicalResourceId: sourcePhysicalResourceId } of sourceCategoryStacks) {
-    const category = CATEGORIES.find((c) => sourceLogicalResourceId?.startsWith(c));
-    if (!category) continue;
-
-    if (!sourcePhysicalResourceId) {
-      throw new AmplifyError('InvalidStackError', {
-        message: `Source category stack '${sourceLogicalResourceId}' does not have a physical resource ID`,
-        resolution: 'Ensure the stack is in a stable state before running the migration.',
-      });
-    }
-    let destinationPhysicalResourceId: string | undefined;
-    let userPoolGroupDestinationPhysicalResourceId: string | undefined;
-
-    const correspondingCategoryStackInDestination = destinationCategoryStacks.find(({ LogicalResourceId: destLogicalId }) =>
-      destLogicalId?.startsWith(category),
-    );
-    if (!correspondingCategoryStackInDestination) {
-      throw new AmplifyError('StackStateError', {
-        message: `No corresponding category found in destination stack for ${category} category`,
-        resolution: 'Ensure your Gen2 stack has the corresponding category resources deployed before running the migration.',
-      });
-    }
-    destinationPhysicalResourceId = correspondingCategoryStackInDestination.PhysicalResourceId;
-
-    let isUserPoolGroupStack = false;
-
-    if (!isRollback && category === 'auth') {
-      const authCategory = await getGen1AuthCategory(cfnClient, sourcePhysicalResourceId);
-      isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
-    } else if (isRollback && category === 'auth') {
-      for (const { LogicalResourceId: destLogicalId, PhysicalResourceId: destPhysicalId } of destinationCategoryStacks) {
-        if (!destPhysicalId) {
-          throw new AmplifyError('InvalidStackError', {
-            message: `Destination auth category stack '${destLogicalId}' does not have a physical resource ID`,
-            resolution: 'Ensure the stack is in a stable state before running the migration.',
-          });
-        }
-        if (!destLogicalId?.startsWith('auth')) continue;
-
-        const authCategory = await getGen1AuthCategory(cfnClient, destPhysicalId);
-        isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
-
-        if (isUserPoolGroupStack) {
-          userPoolGroupDestinationPhysicalResourceId = destPhysicalId;
-        } else if (authCategory === 'auth') {
-          destinationPhysicalResourceId = destPhysicalId;
-        }
-      }
-    }
-
-    if (!destinationPhysicalResourceId) {
-      throw new AmplifyError('InvalidStackError', {
-        message: `No destination stack resolved for ${category} category`,
-        resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
-      });
-    }
-
-    if (!isUserPoolGroupStack || isRollback) {
-      categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
-    }
-    if (isUserPoolGroupStack) {
-      const destinationId =
-        isRollback && userPoolGroupDestinationPhysicalResourceId
-          ? userPoolGroupDestinationPhysicalResourceId
-          : destinationPhysicalResourceId;
-      categoryStackMap.set('auth-user-pool-group', [sourcePhysicalResourceId, destinationId]);
-    }
-  }
-
-  return categoryStackMap;
-}
-
-/**
- * Determines the type of a Gen1 auth stack by parsing its Description metadata.
- * @returns 'auth' for main auth stack, 'auth-user-pool-group' for groups stack, null if unknown
- */
-async function getGen1AuthCategory(cfnClient: CloudFormationClient, stackName: string): Promise<CATEGORY | null> {
-  const describeStacksResponse = await cfnClient.send(new DescribeStacksCommand({ StackName: stackName }));
-  const stackDescription = describeStacksResponse?.Stacks?.[0]?.Description;
-  if (!stackDescription) return null;
-
-  try {
-    const parsed = JSON.parse(stackDescription);
-    if (typeof parsed === 'object' && 'stackType' in parsed) {
-      switch (parsed.stackType) {
-        case GEN1_USER_POOL_GROUPS_STACK_TYPE_DESCRIPTION:
-          return 'auth-user-pool-group';
-        case GEN1_AUTH_STACK_TYPE_DESCRIPTION:
-          return 'auth';
-      }
-    }
-  } catch {
-    // Description might not be valid JSON — fail silently
-  }
-  return null;
-}
 
 interface TemplateGeneratorConfig {
   gen1RootStack: string;
@@ -242,14 +84,14 @@ interface TemplateGeneratorConfig {
 }
 
 interface CategoryGeneratorEntry {
-  category: CATEGORY;
+  category: NON_CUSTOM_RESOURCE_CATEGORY;
   sourceStackId: string;
   destinationStackId: string;
-  generator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>;
+  generator: CategoryTemplateGenerator;
 }
 
 class TemplateGenerator {
-  private _categoryStackMap: Map<CATEGORY, [string, string]>;
+  private _categoryStackMap: Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>;
   private readonly categoryTemplateGenerators: CategoryGeneratorEntry[];
   private readonly _cfnClient: CloudFormationClient;
   private readonly categoryGeneratorConfig = {
@@ -288,7 +130,7 @@ class TemplateGenerator {
     this.environmentName = config.environmentName;
     this.logger = config.logger;
     this.region = config.region;
-    this._categoryStackMap = new Map<CATEGORY, [string, string]>();
+    this._categoryStackMap = new Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>();
     this.categoryTemplateGenerators = [];
   }
 
@@ -297,7 +139,7 @@ class TemplateGenerator {
     return this._categoryStackMap;
   }
 
-  private set categoryStackMap(value: Map<CATEGORY, [string, string]>) {
+  private set categoryStackMap(value: Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>) {
     this._categoryStackMap = value;
   }
 
@@ -340,11 +182,11 @@ class TemplateGenerator {
   }
 
   // Generate templates for selected categories only (Entry point for refactor)
-  public async generateSelectedCategories(selectedCategories: string[], customResourceMap?: ResourceMapping[]): Promise<boolean> {
+  public async generateSelectedCategories(selectedCategories: string[]): Promise<boolean> {
     await fs.mkdir(TEMPLATES_DIR, { recursive: true });
 
     // Filter categoryStackMap to only include selected categories
-    const filteredCategoryStackMap = new Map<CATEGORY, [string, string]>();
+    const filteredCategoryStackMap = new Map<NON_CUSTOM_RESOURCE_CATEGORY, [string, string]>();
     for (const [category, stacks] of this._categoryStackMap.entries()) {
       if (selectedCategories.includes(category)) {
         filteredCategoryStackMap.set(category, stacks);
@@ -356,7 +198,7 @@ class TemplateGenerator {
     this._categoryStackMap = filteredCategoryStackMap;
 
     try {
-      const result = await this.generateCategoryTemplates(false, customResourceMap);
+      const result = await this.generateCategoryTemplates(false);
       return result;
     } finally {
       // Restore original categoryStackMap
@@ -369,81 +211,68 @@ class TemplateGenerator {
     return await this.generateCategoryTemplates(true);
   }
 
-  private isNoResourcesError(error: unknown): boolean {
-    return error instanceof NoResourcesError;
-  }
-
-  private getStackCategoryName(category: string) {
-    return !this.isCustomResource(category) ? category : 'custom';
-  }
-
   private async processGen1Stack(
     category: string,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    categoryTemplateGenerator: CategoryTemplateGenerator,
     sourceCategoryStackId: string,
   ): Promise<CFNTemplate | undefined> {
-    try {
-      const { newTemplate, parameters: gen1StackParameters } = await categoryTemplateGenerator.generateGen1PreProcessTemplate();
-      // gen1StackParameters guaranteed by generateGen1PreProcessTemplate() which asserts Parameters
-      this.logger.info(`Updating Gen 1 ${this.getStackCategoryName(category)} stack...`);
-
-      const gen1StackUpdateStatus = await tryUpdateStack(this.cfnClient, sourceCategoryStackId, gen1StackParameters!, newTemplate);
-
-      if (gen1StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `Gen 1 stack is in an invalid state: ${gen1StackUpdateStatus}`,
-          resolution: 'Check the CloudFormation console for details on the failed stack update.',
-        });
-      }
-      this.logger.info(`Updated Gen 1 ${this.getStackCategoryName(category)} stack successfully`);
-
-      return newTemplate;
-    } catch (e) {
-      if (this.isNoResourcesError(e)) {
-        this.logger.info(`No resources found to move in Gen 1 ${this.getStackCategoryName(category)} stack. Skipping update.`);
-        return undefined;
-      }
-      throw e;
+    const result = await categoryTemplateGenerator.generateGen1PreProcessTemplate();
+    if (!result) {
+      this.logger.info(`No resources found to move in Gen 1 ${category} stack. Skipping update.`);
+      return undefined;
     }
+    const { newTemplate, parameters: gen1StackParameters } = result;
+    // gen1StackParameters guaranteed by generateGen1PreProcessTemplate() which asserts Parameters
+    this.logger.info(`Updating Gen 1 ${category} stack...`);
+
+    const gen1StackUpdateStatus = await tryUpdateStack(this.cfnClient, sourceCategoryStackId, gen1StackParameters!, newTemplate);
+
+    if (gen1StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen 1 stack is in an invalid state: ${gen1StackUpdateStatus}`,
+        resolution: 'Check the CloudFormation console for details on the failed stack update.',
+      });
+    }
+    this.logger.info(`Updated Gen 1 ${category} stack successfully`);
+
+    return newTemplate;
   }
 
   private async processGen2Stack(
     category: string,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    categoryTemplateGenerator: CategoryTemplateGenerator,
     destinationCategoryStackId: string,
   ): Promise<{
     newTemplate: CFNTemplate;
     oldTemplate: CFNTemplate;
     parameters?: Parameter[];
   }> {
-    try {
-      const { newTemplate, oldTemplate, parameters } = await categoryTemplateGenerator.generateGen2ResourceRemovalTemplate();
-
-      this.logger.info(`Updating Gen 2 ${this.getStackCategoryName(category)} stack...`);
-
-      const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, destinationCategoryStackId, parameters ?? [], newTemplate);
-
-      if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `Gen 2 stack is in an invalid state: ${gen2StackUpdateStatus}`,
-          resolution: 'Check the CloudFormation console for details on the failed stack update.',
-        });
-      }
-      this.logger.info(`Updated Gen 2 ${this.getStackCategoryName(category)} stack successfully`);
-
-      return { newTemplate, oldTemplate, parameters };
-    } catch (e) {
-      if (this.isNoResourcesError(e)) {
-        const currentTemplate = categoryTemplateGenerator.gen2Template;
-        // gen2Template guaranteed set by generateGen2ResourceRemovalTemplate() before this catch path
-        const parameters = categoryTemplateGenerator.gen2StackParameters;
-        return { newTemplate: currentTemplate!, oldTemplate: currentTemplate!, parameters };
-      }
-      throw e;
+    const result = await categoryTemplateGenerator.generateGen2ResourceRemovalTemplate();
+    if (!result) {
+      // No Gen2 resources to remove — return current state as a no-op so the caller
+      // can still proceed with the refactor (Gen1 resources may still need to move).
+      const currentTemplate = categoryTemplateGenerator.gen2Template!;
+      const parameters = categoryTemplateGenerator.gen2StackParameters;
+      return { newTemplate: currentTemplate, oldTemplate: currentTemplate, parameters };
     }
+    const { newTemplate, oldTemplate, parameters } = result;
+
+    this.logger.info(`Updating Gen 2 ${category} stack...`);
+
+    const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, destinationCategoryStackId, parameters ?? [], newTemplate);
+
+    if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen 2 stack is in an invalid state: ${gen2StackUpdateStatus}`,
+        resolution: 'Check the CloudFormation console for details on the failed stack update.',
+      });
+    }
+    this.logger.info(`Updated Gen 2 ${category} stack successfully`);
+
+    return { newTemplate, oldTemplate, parameters };
   }
 
-  private initializeCategoryGenerators(customResourceMap?: ResourceMapping[]) {
+  private initializeCategoryGenerators() {
     for (const [category, [sourceStackId, destinationStackId]] of this.categoryStackMap.entries()) {
       const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
 
@@ -455,24 +284,14 @@ class TemplateGenerator {
           generator: this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, config.resourcesToRefactor),
         });
       }
-      // Only use the customResourceMap as a fallback, if its not in the TemplateGenerator config
-      else if (customResourceMap && this.isCustomResource(category)) {
-        this.categoryTemplateGenerators.push({
-          category,
-          sourceStackId,
-          destinationStackId,
-          generator: this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, [], customResourceMap),
-        });
-      }
     }
   }
 
   private createCategoryTemplateGenerator(
     sourceStackId: string,
     destinationStackId: string,
-    resourcesToRefactor: CFN_CATEGORY_TYPE[],
-    customResourceMap?: ResourceMapping[],
-  ): CategoryTemplateGenerator<CFN_CATEGORY_TYPE> {
+    resourcesToRefactor: CFN_RESOURCE_TYPES[],
+  ): CategoryTemplateGenerator {
     return new CategoryTemplateGenerator({
       logger: this.logger,
       gen1StackId: sourceStackId,
@@ -485,28 +304,11 @@ class TemplateGenerator {
       appId: this.appId,
       environmentName: this.environmentName,
       resourcesToMove: resourcesToRefactor,
-      resourcesToMovePredicate: customResourceMap
-        ? (_resourcesToMove: CFN_CATEGORY_TYPE[], cfnResource: [string, CFNResource]) => {
-            const [logicalId] = cfnResource;
-            return (
-              customResourceMap?.some(
-                (resourceMapping) =>
-                  resourceMapping.Source.LogicalResourceId === logicalId || resourceMapping.Destination.LogicalResourceId === logicalId,
-              ) ?? false
-            );
-          }
-        : undefined,
     });
   }
 
-  private isCustomResource(category: string) {
-    return !Object.values(NON_CUSTOM_RESOURCE_CATEGORY)
-      .map((nonCustomCategory) => nonCustomCategory.valueOf())
-      .includes(category);
-  }
-
-  private async generateCategoryTemplates(isRollback = false, customResourceMap?: ResourceMapping[]) {
-    this.initializeCategoryGenerators(customResourceMap);
+  private async generateCategoryTemplates(isRollback = false) {
+    this.initializeCategoryGenerators();
     for (const {
       category,
       sourceStackId: sourceCategoryStackId,
@@ -515,15 +317,7 @@ class TemplateGenerator {
     } of this.categoryTemplateGenerators) {
       let result: CategoryRefactorResult | undefined;
 
-      if (customResourceMap && this.isCustomResource(category)) {
-        result = await this.prepareCategoryForCustomResourceRefactor(
-          category,
-          categoryTemplateGenerator,
-          sourceCategoryStackId,
-          destinationCategoryStackId,
-          customResourceMap,
-        );
-      } else if (!isRollback) {
+      if (!isRollback) {
         result = await this.prepareCategoryForForwardRefactor(
           category,
           categoryTemplateGenerator,
@@ -541,9 +335,7 @@ class TemplateGenerator {
 
       if (!result) continue;
 
-      this.logger.info(
-        `Moving ${this.getStackCategoryName(category)} resources from ${this.getSourceToDestinationMessage(isRollback)} stack...`,
-      );
+      this.logger.info(`Moving ${category} resources from ${this.getSourceToDestinationMessage(isRollback)} stack...`);
       const { success, failedRefactorMetadata } = await this.refactorResources(
         result.logicalIdMapping,
         sourceCategoryStackId,
@@ -555,11 +347,9 @@ class TemplateGenerator {
       );
       if (!success) {
         this.logger.info(
-          `Moving ${this.getStackCategoryName(category)} resources from ${this.getSourceToDestinationMessage(
-            isRollback,
-          )} stack failed. Reason: ${failedRefactorMetadata?.reason}. Status: ${failedRefactorMetadata?.status}. RefactorId: ${
-            failedRefactorMetadata?.stackRefactorId
-          }.`,
+          `Moving ${category} resources from ${this.getSourceToDestinationMessage(isRollback)} stack failed. Reason: ${
+            failedRefactorMetadata?.reason
+          }. Status: ${failedRefactorMetadata?.status}. RefactorId: ${failedRefactorMetadata?.stackRefactorId}.`,
         );
         await pollStackForCompletionState(this.cfnClient, destinationCategoryStackId, 30);
         if (!isRollback && result.oldDestinationTemplate) {
@@ -575,49 +365,15 @@ class TemplateGenerator {
         }
         return false;
       } else {
-        this.logger.info(
-          `Moved ${this.getStackCategoryName(category)} resources from ${this.getSourceToDestinationMessage(
-            isRollback,
-          )} stack successfully`,
-        );
+        this.logger.info(`Moved ${category} resources from ${this.getSourceToDestinationMessage(isRollback)} stack successfully`);
       }
     }
     return true;
   }
 
-  private async prepareCategoryForCustomResourceRefactor(
-    category: string,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
-    sourceCategoryStackId: string,
-    destinationCategoryStackId: string,
-    customResourceMap: ResourceMapping[],
-  ): Promise<CategoryRefactorResult | undefined> {
-    const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
-    if (!processGen1StackResponse) return undefined;
-    const newGen1Template = processGen1StackResponse;
-
-    const { newTemplate: newGen2Template } = await this.processGen2Stack(category, categoryTemplateGenerator, destinationCategoryStackId);
-
-    const sourceToDestinationMap = new Map<string, string>();
-    for (const { Source, Destination } of customResourceMap) {
-      if (Source.LogicalResourceId && Destination.LogicalResourceId) {
-        sourceToDestinationMap.set(Source.LogicalResourceId, Destination.LogicalResourceId);
-      }
-    }
-
-    const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateRefactorTemplates(
-      categoryTemplateGenerator.gen1ResourcesToMove,
-      categoryTemplateGenerator.gen2ResourcesToRemove,
-      newGen1Template,
-      newGen2Template,
-      sourceToDestinationMap,
-    );
-    return { sourceTemplate, destinationTemplate, logicalIdMapping };
-  }
-
   private async prepareCategoryForForwardRefactor(
     category: string,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    categoryTemplateGenerator: CategoryTemplateGenerator,
     sourceCategoryStackId: string,
     destinationCategoryStackId: string,
   ): Promise<CategoryRefactorResult | undefined> {
@@ -644,32 +400,27 @@ class TemplateGenerator {
   }
 
   private async prepareCategoryForRollback(
-    category: string,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    category: NON_CUSTOM_RESOURCE_CATEGORY,
+    categoryTemplateGenerator: CategoryTemplateGenerator,
     sourceCategoryStackId: string,
     destinationCategoryStackId: string,
   ): Promise<CategoryRefactorResult | undefined> {
     const sourceTemplate = await categoryTemplateGenerator.readTemplate(sourceCategoryStackId);
     const destinationTemplate = await categoryTemplateGenerator.readTemplate(destinationCategoryStackId);
-    try {
-      return await this.generateRefactorTemplatesForRollback(
-        sourceTemplate,
-        destinationTemplate,
-        categoryTemplateGenerator,
-        sourceCategoryStackId,
-        category,
-      );
-    } catch (e) {
-      if (this.isNoResourcesError(e)) return undefined;
-      throw e;
-    }
+    return this.generateRefactorTemplatesForRollback(
+      sourceTemplate,
+      destinationTemplate,
+      categoryTemplateGenerator,
+      sourceCategoryStackId,
+      category,
+    );
   }
 
   private async refactorResources(
     logicalIdMappingForRefactor: Map<string, string>,
     sourceCategoryStackId: string,
     destinationCategoryStackId: string,
-    category: 'auth' | 'storage' | 'auth-user-pool-group' | string,
+    category: string,
     isRollback: boolean,
     sourceTemplateForRefactor: CFNTemplate,
     destinationTemplateForRefactor: CFNTemplate,
@@ -704,12 +455,12 @@ class TemplateGenerator {
   }
 
   private async rollbackGen2Stack(
-    category: CATEGORY,
+    category: NON_CUSTOM_RESOURCE_CATEGORY,
     gen2CategoryStackId: string,
     gen2StackParameters: Parameter[] | undefined,
     oldGen2Template: CFNTemplate,
   ) {
-    this.logger.info(`Rolling back Gen 2 ${this.getStackCategoryName(category)} stack...`);
+    this.logger.info(`Rolling back Gen 2 ${category} stack...`);
     const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, gen2CategoryStackId, gen2StackParameters ?? [], oldGen2Template);
     if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
       throw new AmplifyError('InvalidStackError', {
@@ -717,15 +468,15 @@ class TemplateGenerator {
         resolution: 'Check the CloudFormation console for details on the failed stack rollback.',
       });
     }
-    this.logger.info(`Rolled back Gen 2 ${this.getStackCategoryName(category)} stack successfully`);
+    this.logger.info(`Rolled back Gen 2 ${category} stack successfully`);
   }
 
   private async generateRefactorTemplatesForRollback(
     newSourceTemplate: CFNTemplate,
     newDestinationTemplate: CFNTemplate,
-    categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
+    categoryTemplateGenerator: CategoryTemplateGenerator,
     sourceCategoryStackId: string,
-    category: CATEGORY,
+    category: NON_CUSTOM_RESOURCE_CATEGORY,
   ) {
     if (!newSourceTemplate.Resources) {
       throw new AmplifyError('CloudFormationTemplateError', {
@@ -739,8 +490,7 @@ class TemplateGenerator {
       ),
     );
     if (sourceResourcesToRemove.size === 0) {
-      // Internal sentinel — caught by isNoResourcesError() for control flow (skips category)
-      throw new NoResourcesError(`No resources to move in ${category} stack.`);
+      return undefined;
     }
     const describeStackResponseForSourceTemplate = await categoryTemplateGenerator.describeStack(sourceCategoryStackId);
     if (!describeStackResponseForSourceTemplate) {

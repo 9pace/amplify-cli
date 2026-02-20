@@ -87,13 +87,6 @@ export enum NON_CUSTOM_RESOURCE_CATEGORY {
   ANALYTICS = 'analytics',
 }
 
-export type CATEGORY =
-  | NON_CUSTOM_RESOURCE_CATEGORY.AUTH
-  | NON_CUSTOM_RESOURCE_CATEGORY.STORAGE
-  | NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP
-  | NON_CUSTOM_RESOURCE_CATEGORY.ANALYTICS
-  | string;
-
 export interface ResourceMappingLocation {
   StackName: string;
   LogicalResourceId: string;
@@ -148,8 +141,6 @@ export type CFN_RESOURCE_TYPES =
 
 export type AWS_RESOURCE_ATTRIBUTES = 'Arn';
 
-export type CFN_CATEGORY_TYPE = CFN_AUTH_TYPE | CFN_S3_TYPE | CFN_ANALYTICS_TYPE | CFN_IAM_TYPE | string;
-
 export enum CFN_PSEUDO_PARAMETERS_REF {
   StackName = 'AWS::StackName',
 }
@@ -174,15 +165,4 @@ export type FailedRefactorResponse = {
 
 export enum GEN2_AUTH_LOGICAL_RESOURCE_ID {
   IDENTITY_POOL_ROLE_ATTACHMENT = 'IdentityPoolRoleAttachment',
-}
-
-/**
- * Typed sentinel error for control flow when a category has no resources to move/remove.
- * Thrown by CategoryTemplateGenerator and caught by TemplateGenerator to skip categories.
- */
-export class NoResourcesError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'NoResourcesError';
-  }
 }
