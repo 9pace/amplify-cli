@@ -161,3 +161,14 @@ export type FailedRefactorResponse = {
 export enum GEN2_AUTH_LOGICAL_RESOURCE_ID {
   IDENTITY_POOL_ROLE_ATTACHMENT = 'IdentityPoolRoleAttachment',
 }
+
+/**
+ * Typed sentinel error for control flow when a category has no resources to move/remove.
+ * Thrown by CategoryTemplateGenerator and caught by TemplateGenerator to skip categories.
+ */
+export class NoResourcesError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NoResourcesError';
+  }
+}

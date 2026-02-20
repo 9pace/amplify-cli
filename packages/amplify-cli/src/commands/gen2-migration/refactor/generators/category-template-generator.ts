@@ -16,6 +16,7 @@ import {
   CFNResource,
   CFNStackRefactorTemplates,
   CFNTemplate,
+  NoResourcesError,
 } from '../types';
 import CFNConditionResolver from '../resolvers/cfn-condition-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
@@ -114,7 +115,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     }
 
     // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this.gen1ResourcesToMove.size === 0) throw new Error('No resources to move in Gen1 stack.');
+    if (this.gen1ResourcesToMove.size === 0) throw new NoResourcesError('No resources to move in Gen1 stack.');
     const logicalResourceIds = [...this.gen1ResourcesToMove.keys()];
 
     const gen1ParametersResolvedTemplate = new CfnParameterResolver(oldGen1Template, extractStackNameFromId(this.gen1StackId)).resolve(
@@ -225,7 +226,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     }
 
     // Internal sentinel — caught by isNoResourcesError() in template-generator.ts for control flow
-    if (this.gen2ResourcesToRemove.size === 0) throw new Error('No resources to remove in Gen2 stack.');
+    if (this.gen2ResourcesToRemove.size === 0) throw new NoResourcesError('No resources to remove in Gen2 stack.');
     const logicalResourceIds = [...this.gen2ResourcesToRemove.keys()];
 
     const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);

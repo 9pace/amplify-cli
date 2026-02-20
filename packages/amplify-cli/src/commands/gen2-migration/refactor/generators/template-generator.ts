@@ -20,6 +20,7 @@ import {
   CFNTemplate,
   ResourceMapping,
   CFN_ANALYTICS_TYPE,
+  NoResourcesError,
 } from '../types';
 import { pollStackForCompletionState, tryUpdateStack } from '../cfn-stack-updater';
 import { SSMClient } from '@aws-sdk/client-ssm';
@@ -71,8 +72,6 @@ const LOGICAL_IDS_TO_REMOVE_FOR_ROLLBACK_MAP = new Map<CATEGORY, CFN_RESOURCE_TY
 const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
 const GEN1_USER_POOL_GROUPS_STACK_TYPE_DESCRIPTION = 'auth-Cognito-UserPool-Groups';
 const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
-const NO_RESOURCES_TO_MOVE_ERROR = 'No resources to move';
-const NO_RESOURCES_TO_REMOVE_ERROR = 'No resources to remove';
 
 /**
  * Orchestrates CloudFormation stack refactoring between Gen1 and Gen2 stacks.
@@ -411,13 +410,7 @@ class TemplateGenerator {
   };
 
   private isNoResourcesError(error: unknown): boolean {
-    return (
-      typeof error === 'object' &&
-      error !== null &&
-      'message' in error &&
-      typeof error.message === 'string' &&
-      (error.message.includes(NO_RESOURCES_TO_MOVE_ERROR) || error.message.includes(NO_RESOURCES_TO_REMOVE_ERROR))
-    );
+    return error instanceof NoResourcesError;
   }
 
   private getStackCategoryName(category: string) {
@@ -760,7 +753,7 @@ class TemplateGenerator {
     );
     if (sourceResourcesToRemove.size === 0) {
       // Internal sentinel — caught by isNoResourcesError() for control flow (skips category)
-      throw new Error(`${NO_RESOURCES_TO_MOVE_ERROR} in ${category} stack.`);
+      throw new NoResourcesError(`No resources to move in ${category} stack.`);
     }
     const describeStackResponseForSourceTemplate = await categoryTemplateGenerator.describeStack(sourceCategoryStackId);
     if (!describeStackResponseForSourceTemplate) {

@@ -25,6 +25,7 @@ import {
   CFN_DYNAMODB_TYPE,
   CFN_IAM_TYPE,
   CFNTemplate,
+  NoResourcesError,
 } from '../../../../../commands/gen2-migration/refactor/types';
 
 import assert from 'node:assert';
@@ -489,7 +490,7 @@ describe('TemplateGenerator', () => {
 
   it('should skip categories that have already been refactored when using generateSelectedCategories', async () => {
     mockGenerateGen1PreProcessTemplate.mockImplementationOnce(() => {
-      throw new Error('No resources to move in Gen1 stack');
+      throw new NoResourcesError('No resources to move in Gen1 stack');
     });
     const generator = new TemplateGenerator(
       GEN1_ROOT_STACK_NAME,
