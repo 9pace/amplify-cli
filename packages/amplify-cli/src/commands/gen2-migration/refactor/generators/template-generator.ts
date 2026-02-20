@@ -5,7 +5,7 @@ import {
   GetTemplateCommand,
   Parameter,
 } from '@aws-sdk/client-cloudformation';
-import CategoryTemplateGenerator, { HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
+import CategoryTemplateGenerator from './category-template-generator';
 import fs from 'node:fs/promises';
 import {
   CATEGORY,
@@ -34,10 +34,10 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const CFN_RESOURCE_STACK_TYPE = 'AWS::CloudFormation::Stack';
 const GEN2_AMPLIFY_AUTH_LOGICAL_ID_PREFIX = 'amplifyAuth';
+const CDK_HASH_LENGTH = 8;
 
 const CATEGORIES: CATEGORY[] = ['auth', 'storage', 'analytics'];
 const TEMPLATES_DIR = '.amplify/migration/templates';
-const SEPARATOR = ' to ';
 
 const GEN1 = 'Gen 1';
 const GEN2 = 'Gen 2';
@@ -280,7 +280,7 @@ class TemplateGenerator {
 
       if (!isRollback && category === 'auth') {
         // Forward migration: check if this Gen1 auth stack is specifically for UserPoolGroups
-        const gen1AuthTypeStack = await this.getGen1AuthTypeStack(sourcePhysicalResourceId);
+        const gen1AuthTypeStack = await this.getGen1AuthCategory(sourcePhysicalResourceId);
         isUserPoolGroupStack = gen1AuthTypeStack === 'auth-user-pool-group';
       } else if (isRollback && category === 'auth') {
         // Reverse migration: need to find both auth stacks in destination (Gen1) since Gen2 combined them
@@ -297,7 +297,7 @@ class TemplateGenerator {
           const destinationIsAuthCategory = destinationLogicalResourceId?.startsWith('auth');
           if (!destinationIsAuthCategory) continue;
 
-          const gen1AuthTypeStack = await this.getGen1AuthTypeStack(_destinationPhysicalResourceId);
+          const gen1AuthTypeStack = await this.getGen1AuthCategory(_destinationPhysicalResourceId);
           isUserPoolGroupStack = gen1AuthTypeStack === 'auth-user-pool-group';
 
           if (isUserPoolGroupStack) {
@@ -378,7 +378,7 @@ class TemplateGenerator {
    * @param stackName - The stack name/ARN to inspect
    * @returns 'auth' for main auth stack, 'auth-user-pool-group' for groups stack, null if unknown
    */
-  private getGen1AuthTypeStack = async (stackName: string): Promise<CATEGORY | null> => {
+  private getGen1AuthCategory = async (stackName: string): Promise<CATEGORY | null> => {
     const describeStacksResponse = await this.cfnClient.send(
       new DescribeStacksCommand({
         StackName: stackName,
@@ -549,7 +549,6 @@ class TemplateGenerator {
 
   private async generateCategoryTemplates(isRollback = false, customResourceMap?: ResourceMapping[]) {
     this.initializeCategoryGenerators(customResourceMap);
-    let hasOAuthEnabled = false;
     for (const [category, sourceCategoryStackId, destinationCategoryStackId, categoryTemplateGenerator] of this
       .categoryTemplateGenerators) {
       let newSourceTemplate: CFNTemplate | undefined;
@@ -598,9 +597,6 @@ class TemplateGenerator {
         const [newGen1Template, gen1StackParameters] = processGen1StackResponse;
         sourceStackParameters = gen1StackParameters;
         newSourceTemplate = newGen1Template;
-        if (category === 'auth' && sourceStackParameters?.find((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME)) {
-          hasOAuthEnabled = true;
-        }
         const { newTemplate, oldTemplate, parameters } = await this.processGen2Stack(
           category,
           categoryTemplateGenerator,
@@ -799,7 +795,7 @@ class TemplateGenerator {
 
   private getSourceToDestinationMessage(rollback: boolean) {
     const SOURCE_TO_DESTINATION_STACKS = [GEN1, GEN2];
-    return rollback ? SOURCE_TO_DESTINATION_STACKS.reverse().join(SEPARATOR) : SOURCE_TO_DESTINATION_STACKS.join(SEPARATOR);
+    return rollback ? SOURCE_TO_DESTINATION_STACKS.reverse().join(' to ') : SOURCE_TO_DESTINATION_STACKS.join(' to ');
   }
 
   private buildSourceToDestinationMapForRollback(sourceResourcesToRemove: Map<string, CFNResource>): Map<string, string> {
@@ -811,7 +807,7 @@ class TemplateGenerator {
         const [, sourceLogicalIdSuffix] = sourceLogicalId.split(GEN2_AMPLIFY_AUTH_LOGICAL_ID_PREFIX);
         // last 8 digits are always a CDK HASH
         // amplifyAuth<destinationLogicalId>8digitCDKHASH
-        const destinationLogicalId = sourceLogicalIdSuffix.slice(0, sourceLogicalIdSuffix.length - 8);
+        const destinationLogicalId = sourceLogicalIdSuffix.slice(0, sourceLogicalIdSuffix.length - CDK_HASH_LENGTH);
         sourceToDestinationLogicalIdsMap.set(sourceLogicalId, destinationLogicalId);
       } else {
         const destinationLogicalId = GEN1_RESOURCE_TYPE_TO_LOGICAL_RESOURCE_IDS_MAP.get(resource.Type);
