@@ -30,7 +30,7 @@ type RetrieveOAuthValuesParameters = {
  * @param userPoolId
  * @param appId
  * @param environmentName
- * @returns RetrieveOAuthValuesParameters
+ * @returns OAuthClient[]
  */
 const retrieveOAuthValues = async ({
   ssmClient,
