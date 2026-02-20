@@ -5,7 +5,6 @@ import {
   GetTemplateCommand,
   Parameter,
 } from '@aws-sdk/client-cloudformation';
-import assert from 'node:assert';
 import CategoryTemplateGenerator, { HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
 import fs from 'node:fs/promises';
 import {
@@ -222,21 +221,46 @@ class TemplateGenerator {
 
     const sourceStackResources = sourceStackResourcesResponse.StackResources;
     const destStackResources = destStackResourcesResponse.StackResources;
-    assert(sourceStackResources, 'No source stack resources found');
-    assert(destStackResources, 'No destination stack resources found');
+    if (!sourceStackResources) {
+      throw new AmplifyError('InvalidStackError', {
+        message: 'No source stack resources found',
+        resolution: 'Ensure the source stack exists and is in a stable state.',
+      });
+    }
+    if (!destStackResources) {
+      throw new AmplifyError('InvalidStackError', {
+        message: 'No destination stack resources found',
+        resolution: 'Ensure the destination stack exists and is in a stable state.',
+      });
+    }
 
     // Filter to only nested stacks (AWS::CloudFormation::Stack) to retrieve category stacks
     const sourceCategoryStacks = sourceStackResources.filter((stackResource) => stackResource.ResourceType === CFN_RESOURCE_STACK_TYPE);
     const destinationCategoryStacks = destStackResources.filter((stackResource) => stackResource.ResourceType === CFN_RESOURCE_STACK_TYPE);
-    assert(sourceCategoryStacks && sourceCategoryStacks.length > 0, 'No source category stack found');
-    assert(destinationCategoryStacks && destinationCategoryStacks.length > 0, 'No destination category stack found');
+    if (!sourceCategoryStacks || sourceCategoryStacks.length === 0) {
+      throw new AmplifyError('InvalidStackError', {
+        message: 'No nested category stacks found in source stack',
+        resolution: 'Ensure the source stack contains nested category stacks (auth, storage, etc.).',
+      });
+    }
+    if (!destinationCategoryStacks || destinationCategoryStacks.length === 0) {
+      throw new AmplifyError('InvalidStackError', {
+        message: 'No nested category stacks found in destination stack',
+        resolution: 'Ensure the destination stack contains nested category stacks (auth, storage, etc.).',
+      });
+    }
 
     for (const { LogicalResourceId: sourceLogicalResourceId, PhysicalResourceId: sourcePhysicalResourceId } of sourceCategoryStacks) {
       // Check if this stack's logical ID starts with a known category name (e.g., "authXYZ123", "storageDEF456")
       const category = CATEGORIES.find((category) => sourceLogicalResourceId?.startsWith(category));
       if (!category) continue;
 
-      assert(sourcePhysicalResourceId);
+      if (!sourcePhysicalResourceId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Source category stack '${sourceLogicalResourceId}' does not have a physical resource ID`,
+          resolution: 'Ensure the stack is in a stable state before running the migration.',
+        });
+      }
       let destinationPhysicalResourceId: string | undefined;
       let userPoolGroupDestinationPhysicalResourceId: string | undefined;
 
@@ -265,7 +289,12 @@ class TemplateGenerator {
           LogicalResourceId: destinationLogicalResourceId,
           PhysicalResourceId: _destinationPhysicalResourceId,
         } of destinationCategoryStacks) {
-          assert(_destinationPhysicalResourceId);
+          if (!_destinationPhysicalResourceId) {
+            throw new AmplifyError('InvalidStackError', {
+              message: `Destination auth category stack '${destinationLogicalResourceId}' does not have a physical resource ID`,
+              resolution: 'Ensure the stack is in a stable state before running the migration.',
+            });
+          }
           const destinationIsAuthCategory = destinationLogicalResourceId?.startsWith('auth');
           if (!destinationIsAuthCategory) continue;
 
@@ -280,7 +309,12 @@ class TemplateGenerator {
         }
       }
 
-      assert(destinationPhysicalResourceId);
+      if (!destinationPhysicalResourceId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `No destination stack resolved for ${category} category`,
+          resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
+        });
+      }
 
       // Store the mapping in _categoryStackMap
       this.updateCategoryStackMap(
@@ -353,7 +387,7 @@ class TemplateGenerator {
     );
 
     const stackDescription = describeStacksResponse?.Stacks?.[0]?.Description;
-    assert(stackDescription);
+    if (!stackDescription) return null;
 
     try {
       // Gen1 stores metadata as JSON in the Description field
@@ -397,12 +431,17 @@ class TemplateGenerator {
   ): Promise<[CFNTemplate, Parameter[]] | undefined> {
     try {
       const { newTemplate, parameters: gen1StackParameters } = await categoryTemplateGenerator.generateGen1PreProcessTemplate();
-      assert(gen1StackParameters);
+      // gen1StackParameters guaranteed by generateGen1PreProcessTemplate() which asserts Parameters
       this.logger.info(`Updating Gen 1 ${this.getStackCategoryName(category)} stack...`);
 
-      const gen1StackUpdateStatus = await tryUpdateStack(this.cfnClient, sourceCategoryStackId, gen1StackParameters, newTemplate);
+      const gen1StackUpdateStatus = await tryUpdateStack(this.cfnClient, sourceCategoryStackId, gen1StackParameters!, newTemplate);
 
-      assert(gen1StackUpdateStatus === CFNStackStatus.UPDATE_COMPLETE, `Gen 1 stack is in an invalid state: ${gen1StackUpdateStatus}`);
+      if (gen1StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Gen 1 stack is in an invalid state: ${gen1StackUpdateStatus}`,
+          resolution: 'Check the CloudFormation console for details on the failed stack update.',
+        });
+      }
       this.logger.info(`Updated Gen 1 ${this.getStackCategoryName(category)} stack successfully`);
 
       return [newTemplate, gen1StackParameters];
@@ -431,24 +470,27 @@ class TemplateGenerator {
 
       const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, destinationCategoryStackId, parameters ?? [], newTemplate);
 
-      assert(gen2StackUpdateStatus === CFNStackStatus.UPDATE_COMPLETE, `Gen 2 stack is in an invalid state: ${gen2StackUpdateStatus}`);
+      if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Gen 2 stack is in an invalid state: ${gen2StackUpdateStatus}`,
+          resolution: 'Check the CloudFormation console for details on the failed stack update.',
+        });
+      }
       this.logger.info(`Updated Gen 2 ${this.getStackCategoryName(category)} stack successfully`);
 
       return { newTemplate, oldTemplate, parameters };
     } catch (e) {
       if (this.isNoResourcesError(e)) {
         const currentTemplate = categoryTemplateGenerator.gen2Template;
-        assert(currentTemplate);
+        // gen2Template guaranteed set by generateGen2ResourceRemovalTemplate() before this catch path
         const parameters = categoryTemplateGenerator.gen2StackParameters;
-        return { newTemplate: currentTemplate, oldTemplate: currentTemplate, parameters };
+        return { newTemplate: currentTemplate!, oldTemplate: currentTemplate!, parameters };
       }
       throw e;
     }
   }
 
   private initializeCategoryGenerators(customResourceMap?: ResourceMapping[]) {
-    assert(this.region);
-
     for (const [category, [sourceStackId, destinationStackId]] of this.categoryStackMap.entries()) {
       const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
 
@@ -689,7 +731,12 @@ class TemplateGenerator {
   ) {
     this.logger.info(`Rolling back Gen 2 ${this.getStackCategoryName(category)} stack...`);
     const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, gen2CategoryStackId, gen2StackParameters ?? [], oldGen2Template);
-    assert(gen2StackUpdateStatus === CFNStackStatus.UPDATE_COMPLETE, `Gen 2 Stack is in a failed state: ${gen2StackUpdateStatus}.`);
+    if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen 2 stack is in a failed state: ${gen2StackUpdateStatus}`,
+        resolution: 'Check the CloudFormation console for details on the failed stack rollback.',
+      });
+    }
     this.logger.info(`Rolled back Gen 2 ${this.getStackCategoryName(category)} stack successfully`);
   }
 
@@ -700,7 +747,12 @@ class TemplateGenerator {
     sourceCategoryStackId: string,
     category: CATEGORY,
   ) {
-    assert(newSourceTemplate.Resources);
+    if (!newSourceTemplate.Resources) {
+      throw new AmplifyError('CloudFormationTemplateError', {
+        message: 'Source template is missing a Resources section',
+        resolution: 'Ensure the CloudFormation template contains a valid Resources section.',
+      });
+    }
     const sourceResourcesToRemove: Map<string, CFNResource> = new Map(
       Object.entries(newSourceTemplate.Resources).filter(([, value]) =>
         LOGICAL_IDS_TO_REMOVE_FOR_ROLLBACK_MAP.get(category)?.some((resourceToMove) => resourceToMove.valueOf() === value.Type),
@@ -711,17 +763,31 @@ class TemplateGenerator {
       throw new Error(`${NO_RESOURCES_TO_MOVE_ERROR} in ${category} stack.`);
     }
     const describeStackResponseForSourceTemplate = await categoryTemplateGenerator.describeStack(sourceCategoryStackId);
-    assert(describeStackResponseForSourceTemplate);
+    if (!describeStackResponseForSourceTemplate) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Failed to describe source stack '${sourceCategoryStackId}'`,
+        resolution: 'Ensure the stack exists and is accessible.',
+      });
+    }
     const sourceLogicalIds = [...sourceResourcesToRemove.keys()];
     const { Outputs, Parameters } = describeStackResponseForSourceTemplate;
-    assert(Outputs);
-    assert(this.region);
+    if (!Outputs) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Source stack '${sourceCategoryStackId}' has no outputs`,
+        resolution: 'Ensure the stack has outputs defined for the resources being migrated.',
+      });
+    }
     const { StackResources } = await this.cfnClient.send(
       new DescribeStackResourcesCommand({
         StackName: sourceCategoryStackId,
       }),
     );
-    assert(StackResources);
+    if (!StackResources) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `No resources found in stack '${sourceCategoryStackId}'`,
+        resolution: 'Ensure the stack exists and contains resources.',
+      });
+    }
     const newSourceTemplateWithParametersResolved = new CfnParameterResolver(newSourceTemplate).resolve(Parameters ?? []);
     const newSourceTemplateWithOutputsResolved = new CfnOutputResolver(
       newSourceTemplateWithParametersResolved,
@@ -756,7 +822,12 @@ class TemplateGenerator {
         sourceToDestinationLogicalIdsMap.set(sourceLogicalId, destinationLogicalId);
       } else {
         const destinationLogicalId = GEN1_RESOURCE_TYPE_TO_LOGICAL_RESOURCE_IDS_MAP.get(resource.Type);
-        assert(destinationLogicalId);
+        if (!destinationLogicalId) {
+          throw new AmplifyError('InvalidStackError', {
+            message: `No rollback mapping found for resource type '${resource.Type}' (logical ID: '${sourceLogicalId}')`,
+            resolution: 'This resource type is not supported for rollback. Check the migration documentation for supported resource types.',
+          });
+        }
         sourceToDestinationLogicalIdsMap.set(sourceLogicalId, destinationLogicalId);
       }
     }
