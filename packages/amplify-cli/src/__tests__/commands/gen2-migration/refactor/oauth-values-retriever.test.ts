@@ -40,3 +40,38 @@ describe('OAuthValuesRetriever', () => {
     ).rejects.toThrowError(INVALID_OAUTH_METADATA_PARAM);
   });
 });
+
+it('should throw InvalidStackError when OAuth parameter has no value', async () => {
+  await expect(
+    oauthValuesRetriever({
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      userPoolId: USER_POOL_ID,
+      oAuthParameter: {
+        ParameterKey: 'hostedUIProviderMeta',
+        ParameterValue: undefined,
+      },
+      ssmClient: new SSMClient(),
+      cognitoIdpClient: new CognitoIdentityProviderClient(),
+    }),
+  ).rejects.toThrow("OAuth parameter 'hostedUIProviderMeta' has no value");
+});
+
+it('should throw InvalidStackError when Cognito returns no provider details', async () => {
+  const mockCognitoClient = {
+    send: jest.fn().mockResolvedValue({ IdentityProvider: { ProviderDetails: undefined } }),
+  } as unknown as CognitoIdentityProviderClient;
+  await expect(
+    oauthValuesRetriever({
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      userPoolId: USER_POOL_ID,
+      oAuthParameter: {
+        ParameterKey: 'hostedUIProviderMeta',
+        ParameterValue: JSON.stringify([{ ProviderName: 'Google' }]),
+      },
+      ssmClient: new SSMClient(),
+      cognitoIdpClient: mockCognitoClient,
+    }),
+  ).rejects.toThrow("Cognito returned no provider details for 'Google'");
+});

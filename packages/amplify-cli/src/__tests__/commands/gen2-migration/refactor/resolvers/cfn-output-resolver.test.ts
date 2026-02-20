@@ -605,3 +605,60 @@ describe('CFNOutputResolver', () => {
     ).toThrow(`Kinesis stream physical resource ID 'MyKinesisStream' for logical resource 'MyKinesisStream' is not a valid ARN.`);
   });
 });
+
+it('should throw CloudFormationTemplateError when template has no Resources section', () => {
+  const templateWithoutResources = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'No resources',
+    Outputs: { Out: { Value: 'v', Description: 'd' } },
+  } as unknown as CFNTemplate;
+  expect(() => new CfnOutputResolver(templateWithoutResources, 'us-east-1', '12345').resolve([], [], [])).toThrow(
+    'Template is missing a Resources section',
+  );
+});
+
+it('should throw CloudFormationTemplateError when template has no Outputs section', () => {
+  const templateWithoutOutputs = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'No outputs',
+    Resources: { R: { Type: 'AWS::S3::Bucket', Properties: {} } },
+  } as unknown as CFNTemplate;
+  expect(() => new CfnOutputResolver(templateWithoutOutputs, 'us-east-1', '12345').resolve([], [], [])).toThrow(
+    'Template is missing an Outputs section',
+  );
+});
+
+it('should throw InvalidStackError when stack output value is missing', () => {
+  const tmpl: CFNTemplate = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'test',
+    Parameters: {},
+    Outputs: { MissingOutput: { Value: { Ref: 'SomeResource' }, Description: 'd' } },
+    Resources: { SomeResource: { Type: 'AWS::S3::Bucket', Properties: {} } },
+  };
+  expect(() => new CfnOutputResolver(tmpl, 'us-east-1', '12345').resolve(['SomeResource'], [], [])).toThrow(
+    "Stack output 'MissingOutput' not found in stack outputs",
+  );
+});
+
+it('should throw InvalidStackError when stack resource has no physical ID', () => {
+  const tmpl: CFNTemplate = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'test',
+    Parameters: {},
+    Outputs: {},
+    Resources: {
+      MyFunc: {
+        Type: 'AWS::Lambda::Function',
+        Properties: { Role: { 'Fn::GetAtt': ['NoPhysicalIdResource', 'Arn'] } },
+      },
+    },
+  };
+  expect(() =>
+    new CfnOutputResolver(tmpl, 'us-east-1', '12345').resolve(
+      [],
+      [],
+      [{ LogicalResourceId: 'NoPhysicalIdResource', PhysicalResourceId: undefined, ResourceType: 'AWS::Lambda::Function' } as any],
+    ),
+  ).toThrow("Resource 'NoPhysicalIdResource' does not have a physical resource ID");
+});

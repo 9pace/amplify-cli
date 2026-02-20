@@ -125,3 +125,27 @@ describe('CFNConditionResolver', () => {
     expect(resolvedTemplate).toEqual(expectedResolvedTemplate);
   });
 });
+
+it('should throw CloudFormationTemplateError when a Ref parameter cannot be resolved', () => {
+  const templateWithUnresolvableRef: CFNTemplate = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'Template with unresolvable Ref',
+    Conditions: {
+      MyCond: {
+        'Fn::Equals': [{ Ref: 'MissingParam' }, 'prod'],
+      },
+    },
+    Resources: {
+      MyResource: {
+        Type: 'AWS::S3::Bucket',
+        Condition: 'MyCond',
+        Properties: { BucketName: 'test' },
+      },
+    },
+    Parameters: {},
+    Outputs: {},
+  };
+  expect(() => new CFNConditionResolver(templateWithUnresolvableRef).resolve([])).toThrow(
+    "Parameter 'MissingParam' referenced in condition could not be resolved",
+  );
+});
