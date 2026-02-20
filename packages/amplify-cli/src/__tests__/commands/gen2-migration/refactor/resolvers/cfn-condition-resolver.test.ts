@@ -126,6 +126,34 @@ describe('CFNConditionResolver', () => {
   });
 });
 
+it('should resolve Fn::If conditions inside array properties', () => {
+  const template: CFNTemplate = {
+    AWSTemplateFormatVersion: '2010-09-09',
+    Description: 'Template with array containing Fn::If',
+    Conditions: {
+      IsProd: { 'Fn::Equals': [{ Ref: 'Env' }, 'prod'] },
+    },
+    Resources: {
+      MyResource: {
+        Type: 'AWS::EC2::SecurityGroup',
+        Properties: {
+          SecurityGroupIngress: [
+            { 'Fn::If': ['IsProd', { IpProtocol: 'tcp', FromPort: 443 }, { IpProtocol: 'tcp', FromPort: 80 }] },
+            { IpProtocol: 'tcp', FromPort: 22 },
+          ],
+        },
+      },
+    },
+    Parameters: { Env: { Type: 'String' } },
+    Outputs: {},
+  };
+  const resolved = new CFNConditionResolver(template).resolve([{ ParameterKey: 'Env', ParameterValue: 'prod' }]);
+  expect(resolved.Resources.MyResource.Properties.SecurityGroupIngress).toEqual([
+    { IpProtocol: 'tcp', FromPort: 443 },
+    { IpProtocol: 'tcp', FromPort: 22 },
+  ]);
+});
+
 it('should throw CloudFormationTemplateError when a Ref parameter cannot be resolved', () => {
   const templateWithUnresolvableRef: CFNTemplate = {
     AWSTemplateFormatVersion: '2010-09-09',
