@@ -1,5 +1,4 @@
 import { AWS_RESOURCE_ATTRIBUTES, CFN_RESOURCE_TYPES, CFNTemplate } from '../types';
-import assert from 'node:assert';
 import { Output, StackResource } from '@aws-sdk/client-cloudformation';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
@@ -14,20 +13,33 @@ class CfnOutputResolver {
   constructor(private readonly template: CFNTemplate, private readonly region: string, private readonly accountId: string) {}
 
   public resolve(logicalResourceIds: string[], stackOutputs: Output[], stackResources: StackResource[]): CFNTemplate {
-    const resources = this.template?.Resources;
-    assert(resources);
     const clonedStackTemplate = JSON.parse(JSON.stringify(this.template)) as CFNTemplate;
     const stackTemplateOutputs = this.template?.Outputs;
     const stackTemplateResources = this.template?.Resources;
-    assert(stackTemplateResources);
-    assert(stackOutputs);
-    assert(stackTemplateOutputs);
+    if (!stackTemplateResources) {
+      throw new AmplifyError('CloudFormationTemplateError', {
+        message: 'Template is missing a Resources section',
+        resolution: 'Ensure the CloudFormation template contains a valid Resources section.',
+      });
+    }
+    if (!stackTemplateOutputs) {
+      throw new AmplifyError('CloudFormationTemplateError', {
+        message: 'Template is missing an Outputs section',
+        resolution: 'Ensure the CloudFormation template contains an Outputs section with the expected output keys.',
+      });
+    }
     let stackTemplateResourcesString = JSON.stringify(stackTemplateResources);
 
     Object.entries(stackTemplateOutputs).forEach(([outputKey, outputValue]) => {
       const value = outputValue.Value;
       const stackOutputValue = stackOutputs?.find((op) => op.OutputKey === outputKey)?.OutputValue;
-      assert(stackOutputValue);
+      if (!stackOutputValue) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Stack output '${outputKey}' not found in stack outputs`,
+          resolution:
+            'Ensure the stack is in a stable state and all outputs are available. Try describing the stack manually with the AWS CLI.',
+        });
+      }
 
       if (typeof value !== 'object') {
         return;
@@ -44,15 +56,20 @@ class CfnOutputResolver {
       } else {
         return;
       }
-      assert(logicalResourceId);
+      if (!logicalResourceId) {
+        throw new AmplifyError('CloudFormationTemplateError', {
+          message: `Output '${outputKey}' contains an empty Ref or Fn::GetAtt reference`,
+          resolution: 'Ensure all Ref and Fn::GetAtt references in the template Outputs section have valid logical resource IDs.',
+        });
+      }
 
       // Replace Fn:GetAtt references using stack output values
       const fnGetAttRegExp = new RegExp(`{"${GET_ATT}":\\["${logicalResourceId}","(?<AttributeName>\\w+)"]}`, 'g');
       const fnGetAttRegExpResult = stackTemplateResourcesString.matchAll(fnGetAttRegExp).next();
       if (!fnGetAttRegExpResult.done) {
         const resourceType = this.template.Resources[logicalResourceId].Type as CFN_RESOURCE_TYPES;
-        const attributeName = fnGetAttRegExpResult.value.groups?.AttributeName;
-        assert(attributeName);
+        // groups! is safe: the regex named capture group (?<AttributeName>\w+) guarantees a match
+        const attributeName = fnGetAttRegExpResult.value.groups!.AttributeName;
         const resource = this.getResourceAttribute(attributeName as AWS_RESOURCE_ATTRIBUTES, resourceType, stackOutputValue);
         if (resource) {
           stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExp, this.buildFnGetAttReplace(resource));
@@ -66,7 +83,13 @@ class CfnOutputResolver {
     clonedStackTemplate.Resources = JSON.parse(stackTemplateResourcesString);
     Object.entries(clonedStackTemplate.Outputs).forEach(([outputKey]) => {
       const stackOutputValue = stackOutputs?.find((op) => op.OutputKey === outputKey)?.OutputValue;
-      assert(stackOutputValue);
+      if (!stackOutputValue) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Stack output '${outputKey}' not found in stack outputs`,
+          resolution:
+            'Ensure the stack is in a stable state and all outputs are available. Try describing the stack manually with the AWS CLI.',
+        });
+      }
       clonedStackTemplate.Outputs[outputKey].Value = stackOutputValue;
     });
 
@@ -94,7 +117,13 @@ class CfnOutputResolver {
         if (stackResourceWithMatchingLogicalId) {
           const fnGetAttRegExpPerLogicalId = new RegExp(`{"${GET_ATT}":\\["${groups.LogicalResourceId}","(?<AttributeName>\\w+)"]}`, 'g');
           const stackResourcePhysicalId = stackResourceWithMatchingLogicalId.PhysicalResourceId;
-          assert(stackResourcePhysicalId);
+          if (!stackResourcePhysicalId) {
+            throw new AmplifyError('InvalidStackError', {
+              message: `Resource '${groups.LogicalResourceId}' does not have a physical resource ID`,
+              resolution:
+                'Ensure the stack is in a stable state (not currently being created, updated, or deleted) before running the migration.',
+            });
+          }
 
           // Kinesis streams require their ARN to be exposed in CloudFormation outputs.
           // The physical resource ID for Kinesis streams is the stream name, not the ARN.
