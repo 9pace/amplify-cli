@@ -78,7 +78,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     const templateGenerator = await this.initializeTemplateGenerator('rollback');
     this.logger.info('🔧 Executing CloudFormation stack rollback...');
     await templateGenerator.rollback();
-    await this.emitUsageAnalytics(this.currentEnvName, true);
   }
 
   private async executeStackRefactor(): Promise<void> {
@@ -89,24 +88,20 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     // Populates _categoryStackMap with: category → [sourceStackId, destinationStackId]
     await templateGenerator.initializeForAssessment();
 
-    // Interactive assessment and selection
-    const selectedCategories = await this.assessAndSelectCategories(templateGenerator);
+    // Assess available category stacks for migration
+    const categoriesToMigrate = await this.assessCategories(templateGenerator);
 
-    if (selectedCategories.length === 0) {
-      this.logger.info('ℹ️  No categories selected for migration. Exiting.');
+    if (categoriesToMigrate.length === 0) {
+      this.logger.info('ℹ️  No categories found for migration. Exiting.');
       return;
     }
 
     this.logger.info('🔧 Executing CloudFormation stack refactor...');
-    this.logger.info(`📋 Selected categories: ${selectedCategories.join(', ')}`);
+    this.logger.info(`📋 Categories to migrate: ${categoriesToMigrate.join(', ')}`);
 
-    const success = await templateGenerator.generateSelectedCategories(selectedCategories);
+    const success = await templateGenerator.generateSelectedCategories(categoriesToMigrate);
 
-    if (success) {
-      // Emit usage analytics
-      await this.emitUsageAnalytics(this.currentEnvName, true);
-    } else {
-      await this.emitUsageAnalytics(this.currentEnvName, false);
+    if (!success) {
       throw new AmplifyError('DeploymentError', {
         message: 'Failed to execute CloudFormation stack refactor',
         resolution: 'Check the CloudFormation console for details on the failed stack refactor operation.',
@@ -114,7 +109,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     }
   }
 
-  private async assessAndSelectCategories(templateGenerator: TemplateGenerator): Promise<string[]> {
+  private async assessCategories(templateGenerator: TemplateGenerator): Promise<string[]> {
     this.logger.info('');
     this.logger.info('🔍 Assessing available resources for migration...');
 
@@ -165,37 +160,31 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     }> = [];
 
     for (const [category, [sourceCategoryStackId]] of templateGenerator.categoryStackMap.entries()) {
-      try {
-        const sourceTemplate = await templateGenerator.getStackTemplate(sourceCategoryStackId);
-        if (!sourceTemplate?.Resources) continue;
+      const sourceTemplate = await templateGenerator.getStackTemplate(sourceCategoryStackId);
+      if (!sourceTemplate?.Resources) continue;
 
-        const resourcesToMigrate = templateGenerator.getResourcesToMigrate(sourceTemplate, category);
+      const resourcesToMigrate = templateGenerator.getResourcesToMigrate(sourceTemplate, category);
 
-        if (resourcesToMigrate.length === 0) continue;
+      if (resourcesToMigrate.length === 0) continue;
 
-        // Get resource types
-        const resourceTypes = [
-          ...new Set(resourcesToMigrate.map((logicalId) => sourceTemplate.Resources[logicalId]?.Type).filter(Boolean)),
-        ];
+      // Get resource types
+      const resourceTypes = [...new Set(resourcesToMigrate.map((logicalId) => sourceTemplate.Resources[logicalId]?.Type).filter(Boolean))];
 
-        // Check for OAuth (auth category only)
-        let hasOAuth = false;
-        if (category === 'auth') {
-          const stackInfo = await templateGenerator.cfnClient.send(new DescribeStacksCommand({ StackName: sourceCategoryStackId }));
-          const parameters = stackInfo.Stacks?.[0]?.Parameters || [];
-          hasOAuth = parameters.some((param) => param.ParameterKey === 'hostedUIProviderMeta');
-        }
-
-        assessments.push({
-          category,
-          resourceCount: resourcesToMigrate.length,
-          resourceTypes,
-          hasOAuth,
-          stackId: sourceCategoryStackId,
-        });
-      } catch (error) {
-        this.logger.debug(`Failed to assess ${category} category: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Check for OAuth (auth category only)
+      let hasOAuth = false;
+      if (category === 'auth') {
+        const stackInfo = await templateGenerator.cfnClient.send(new DescribeStacksCommand({ StackName: sourceCategoryStackId }));
+        const parameters = stackInfo.Stacks?.[0]?.Parameters || [];
+        hasOAuth = parameters.some((param) => param.ParameterKey === 'hostedUIProviderMeta');
       }
+
+      assessments.push({
+        category,
+        resourceCount: resourcesToMigrate.length,
+        resourceTypes,
+        hasOAuth,
+        stackId: sourceCategoryStackId,
+      });
     }
 
     return assessments;
@@ -230,14 +219,5 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       logger: this.logger,
       region: this.region,
     });
-  }
-
-  private async emitUsageAnalytics(envName: string, success: boolean): Promise<void> {
-    // Simplified usage analytics (would normally use UsageData.Instance)
-    try {
-      this.logger.debug(`Analytics: refactor command ${success ? 'succeeded' : 'failed'} for env: ${envName}`);
-    } catch (error) {
-      // Ignore analytics errors
-    }
   }
 }
