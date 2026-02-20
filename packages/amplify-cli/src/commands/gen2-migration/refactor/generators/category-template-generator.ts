@@ -7,7 +7,7 @@ import {
   Parameter,
 } from '@aws-sdk/client-cloudformation';
 import { SSMClient } from '@aws-sdk/client-ssm';
-import assert from 'node:assert';
+import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 import {
   CFN_AUTH_TYPE,
   CFN_CATEGORY_TYPE,
@@ -73,10 +73,25 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     this.logger.debug(`Gen1 Stack ID: ${this.gen1StackId}`);
 
     this.gen1DescribeStacksResponse = await this.describeStack(this.gen1StackId);
-    assert(this.gen1DescribeStacksResponse);
+    if (!this.gen1DescribeStacksResponse) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Failed to describe Gen1 stack '${this.gen1StackId}'`,
+        resolution: 'Ensure the stack exists and is accessible.',
+      });
+    }
     const { Parameters, Outputs } = this.gen1DescribeStacksResponse;
-    assert(Parameters);
-    assert(Outputs);
+    if (!Parameters) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen1 stack '${this.gen1StackId}' has no parameters`,
+        resolution: 'Ensure the Gen1 stack has parameters defined.',
+      });
+    }
+    if (!Outputs) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen1 stack '${this.gen1StackId}' has no outputs`,
+        resolution: 'Ensure the Gen1 stack has outputs defined for the resources being migrated.',
+      });
+    }
     this.logger.debug(`Gen1 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
     this.logger.debug(`Gen1 Stack Outputs: ${JSON.stringify(Outputs, null, 2)}`);
 
@@ -136,7 +151,12 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     const oAuthProvidersParam = Parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
     if (oAuthProvidersParam) {
       const userPoolId = Outputs.find((op) => op.OutputKey === USER_POOL_ID_OUTPUT_KEY_NAME)?.OutputValue;
-      assert(userPoolId);
+      if (!userPoolId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Gen1 stack output '${USER_POOL_ID_OUTPUT_KEY_NAME}' not found`,
+          resolution: 'Ensure the Gen1 auth stack has a UserPoolId output.',
+        });
+      }
       const oAuthValues = await retrieveOAuthValues({
         ssmClient: this.ssmClient,
         cognitoIdpClient: this.cognitoIdpClient,
@@ -146,7 +166,12 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
         userPoolId,
       });
       const oAuthProviderCredentialsParam = Parameters.find((param) => param.ParameterKey === HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME);
-      assert(oAuthProviderCredentialsParam);
+      if (!oAuthProviderCredentialsParam) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `Gen1 stack parameter '${HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME}' not found`,
+          resolution: 'Ensure the Gen1 auth stack has the hostedUIProviderCreds parameter when OAuth is enabled.',
+        });
+      }
       oAuthProviderCredentialsParam.ParameterValue = JSON.stringify(oAuthValues);
     }
     return {
@@ -160,9 +185,19 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     this.logger.debug(`Gen2 Stack ID: ${this.gen2StackId}`);
 
     this.gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
-    assert(this.gen2DescribeStacksResponse);
+    if (!this.gen2DescribeStacksResponse) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Failed to describe Gen2 stack '${this.gen2StackId}'`,
+        resolution: 'Ensure the stack exists and is accessible.',
+      });
+    }
     const { Parameters, Outputs } = this.gen2DescribeStacksResponse;
-    assert(Outputs);
+    if (!Outputs) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Gen2 stack '${this.gen2StackId}' has no outputs`,
+        resolution: 'Ensure the Gen2 stack has outputs defined.',
+      });
+    }
     this.gen2StackParameters = Parameters;
     if (Parameters) {
       this.logger.debug(`Gen2 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
@@ -212,7 +247,12 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }),
     );
     const templateBody = getTemplateResponse.TemplateBody;
-    assert(templateBody);
+    if (!templateBody) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Stack '${stackId}' returned an empty template body`,
+        resolution: 'Ensure the stack exists and has a valid template.',
+      });
+    }
     return JSON.parse(templateBody) as CFNTemplate;
   }
 
@@ -233,7 +273,12 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       }),
     );
 
-    assert(StackResources && StackResources.length > 0);
+    if (!StackResources || StackResources.length === 0) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `No resources found in stack '${stackId}'`,
+        resolution: 'Ensure the stack exists and contains resources.',
+      });
+    }
 
     return StackResources;
   }
@@ -241,7 +286,6 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private removeGen1ResourcesFromGen1Stack(gen1Template: CFNTemplate, resourcesToRefactor: string[]) {
     this.logger.debug(`Removing Gen1 resources: ${resourcesToRefactor}`);
     const resources = gen1Template.Resources;
-    assert(resources);
     for (const resourceToRefactor of resourcesToRefactor) {
       delete resources[resourceToRefactor];
     }
@@ -258,10 +302,14 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
     this.logger.debug(`Resources to add: ${resourcesToRefactor}`);
     this.logger.debug(`Resource mapping: ${Array.from(gen1ToGen2ResourceLogicalIdMapping.entries())}`);
     const resources = gen2Template.Resources;
-    assert(resources);
     for (const resourceToRefactor of resourcesToRefactor) {
       const gen2ResourceLogicalId = gen1ToGen2ResourceLogicalIdMapping.get(resourceToRefactor);
-      assert(gen2ResourceLogicalId);
+      if (!gen2ResourceLogicalId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `No Gen2 resource mapping found for Gen1 resource '${resourceToRefactor}'`,
+          resolution: 'Ensure the Gen2 stack has corresponding resources for all Gen1 resources being migrated.',
+        });
+      }
       this.logger.debug(` Adding resource: ${resourceToRefactor} -> ${gen2ResourceLogicalId}`);
       resources[gen2ResourceLogicalId] = resolvedGen1Template.Resources[resourceToRefactor];
       // replace Gen1 dependency with Gen2 counterparts for Gen1 resources being moved over to Gen2
@@ -273,8 +321,7 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
       const dependenciesArray = Array.isArray(dependencies) ? dependencies : [dependencies];
       resources[gen2ResourceLogicalId].DependsOn = dependenciesArray.map((dependency) => {
         if (gen1ToGen2ResourceLogicalIdMapping.has(dependency)) {
-          const gen2DependencyName = gen1ToGen2ResourceLogicalIdMapping.get(dependency);
-          assert(gen2DependencyName);
+          const gen2DependencyName = gen1ToGen2ResourceLogicalIdMapping.get(dependency)!;
           this.logger.debug(` Mapping dependency: ${dependency} -> ${gen2DependencyName}`);
           return gen2DependencyName;
         } else {
@@ -327,8 +374,8 @@ class CategoryTemplateGenerator<CFNCategoryType extends CFN_CATEGORY_TYPE> {
   private async removeGen2ResourcesFromGen2Stack(gen2Template: CFNTemplate, resourcesToRemove: string[]) {
     this.logger.debug(`Gen2 resources to remove from stack: ${resourcesToRemove}`);
     const clonedGen2Template = JSON.parse(JSON.stringify(gen2Template));
-    const stackOutputs = this.gen2DescribeStacksResponse?.Outputs;
-    assert(stackOutputs);
+    // Guaranteed by generateGen2ResourceRemovalTemplate() which asserts Outputs before this call
+    const stackOutputs = this.gen2DescribeStacksResponse!.Outputs!;
 
     this.logger.debug('Describing Gen2 stack resources...');
     const stackResources = await this.describeStackResources(this.gen2StackId);
