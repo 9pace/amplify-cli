@@ -9,7 +9,7 @@ import {
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
 import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFN_FAILED_STATE_SUFFIX, FailedRefactorResponse } from './types';
-import { pollStackForCompletionState } from './cfn-stack-updater';
+import { pollStackForTerminalState } from './cfn-stack-updater';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 300;
@@ -91,14 +91,14 @@ export async function tryRefactorStack(
       resolution: 'This is an internal error. Please report it with the full command output.',
     });
   }
-  const sourceStackStatus = await pollStackForCompletionState(cfnClient, sourceStackName);
+  const sourceStackStatus = await pollStackForTerminalState(cfnClient, sourceStackName);
   if (sourceStackStatus !== CFNStackStatus.UPDATE_COMPLETE) {
     throw new AmplifyError('DeploymentError', {
       message: `${sourceStackName} was not updated successfully. Status: ${sourceStackStatus}`,
       resolution: `Check the CloudFormation console for stack '${sourceStackName}' to see failure details.`,
     });
   }
-  const destinationStackStatus = await pollStackForCompletionState(cfnClient, destinationStackName);
+  const destinationStackStatus = await pollStackForTerminalState(cfnClient, destinationStackName);
   if (destinationStackStatus !== CFNStackStatus.UPDATE_COMPLETE) {
     throw new AmplifyError('DeploymentError', {
       message: `${destinationStackName} was not updated successfully. Status: ${destinationStackStatus}`,

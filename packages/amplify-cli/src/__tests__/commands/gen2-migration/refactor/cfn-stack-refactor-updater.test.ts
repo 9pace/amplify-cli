@@ -8,15 +8,15 @@ import {
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
 import { tryRefactorStack } from '../../../../commands/gen2-migration/refactor/cfn-stack-refactor-updater';
-import { pollStackForCompletionState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
+import { pollStackForTerminalState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
 
 jest.mock('../../../../commands/gen2-migration/refactor/cfn-stack-updater', () => ({
-  pollStackForCompletionState: jest.fn(),
+  pollStackForTerminalState: jest.fn(),
 }));
 
 jest.useFakeTimers();
 
-const mockPollStack = pollStackForCompletionState as jest.MockedFunction<typeof pollStackForCompletionState>;
+const mockPollStack = pollStackForTerminalState as jest.MockedFunction<typeof pollStackForTerminalState>;
 const mockSend = jest.fn();
 const cfnClient = { send: mockSend } as unknown as CloudFormationClient;
 

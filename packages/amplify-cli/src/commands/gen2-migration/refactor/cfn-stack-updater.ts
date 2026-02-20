@@ -30,7 +30,7 @@ export async function tryUpdateStack(
         Capabilities: [CFN_IAM_CAPABILITY],
       }),
     );
-    return pollStackForCompletionState(cfnClient, stackName, attempts);
+    return pollStackForTerminalState(cfnClient, stackName, attempts);
   } catch (e) {
     if (!(e && typeof e === 'object' && 'message' in e && typeof e.message === 'string' && e.message.includes(NO_UPDATES_MESSAGE))) {
       throw e;
@@ -46,7 +46,7 @@ export async function tryUpdateStack(
  * @param attempts number of attempts to poll for completion.
  * @returns the stack status
  */
-export async function pollStackForCompletionState(
+export async function pollStackForTerminalState(
   cfnClient: CloudFormationClient,
   stackName: string,
   attempts: number = POLL_ATTEMPTS,

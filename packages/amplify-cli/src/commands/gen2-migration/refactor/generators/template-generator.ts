@@ -14,7 +14,7 @@ import {
   CFN_ANALYTICS_TYPE,
   CategoryRefactorResult,
 } from '../types';
-import { pollStackForCompletionState, tryUpdateStack } from '../cfn-stack-updater';
+import { pollStackForTerminalState, tryUpdateStack } from '../cfn-stack-updater';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { tryRefactorStack } from '../cfn-stack-refactor-updater';
@@ -322,7 +322,7 @@ class TemplateGenerator {
             failedRefactorMetadata?.reason
           }. Status: ${failedRefactorMetadata?.status}. RefactorId: ${failedRefactorMetadata?.stackRefactorId}.`,
         );
-        await pollStackForCompletionState(this.cfnClient, destinationCategoryStackId, 30);
+        await pollStackForTerminalState(this.cfnClient, destinationCategoryStackId, 30);
         if (!isRollback && result.oldDestinationTemplate) {
           // Gen1 rollback is unnecessary here: processGen1Stack resolved dynamic references
           // (!Ref, !GetAtt) to static values, but those values are correct. The resources

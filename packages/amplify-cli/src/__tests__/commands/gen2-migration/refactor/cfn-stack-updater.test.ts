@@ -1,5 +1,5 @@
 import { CloudFormationClient, DescribeStacksCommand, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
-import { tryUpdateStack, pollStackForCompletionState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
+import { tryUpdateStack, pollStackForTerminalState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
 import { CFNStackStatus, CFNTemplate } from '../../../../commands/gen2-migration/refactor/types';
 
 jest.useFakeTimers();
@@ -57,18 +57,18 @@ describe('tryUpdateStack', () => {
   });
 });
 
-describe('pollStackForCompletionState', () => {
+describe('pollStackForTerminalState', () => {
   it('should return status when stack reaches completion state', async () => {
     mockSend.mockResolvedValue({ Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] });
 
-    const result = await pollStackForCompletionState(cfnClient, STACK_NAME, 1);
+    const result = await pollStackForTerminalState(cfnClient, STACK_NAME, 1);
     expect(result).toBe('UPDATE_COMPLETE');
   });
 
   it('should throw DeploymentError when polling times out', async () => {
     mockSend.mockResolvedValue({ Stacks: [{ StackStatus: 'UPDATE_IN_PROGRESS' }] });
 
-    const promise = pollStackForCompletionState(cfnClient, STACK_NAME, 1);
+    const promise = pollStackForTerminalState(cfnClient, STACK_NAME, 1);
     // Flush microtasks so the first poll completes, then advance past the setTimeout
     await Promise.resolve();
     jest.advanceTimersByTime(5000);
@@ -78,13 +78,13 @@ describe('pollStackForCompletionState', () => {
   it('should throw DeploymentError when stack is not found', async () => {
     mockSend.mockResolvedValue({ Stacks: [] });
 
-    await expect(pollStackForCompletionState(cfnClient, STACK_NAME, 1)).rejects.toThrow('not found in DescribeStacks response');
+    await expect(pollStackForTerminalState(cfnClient, STACK_NAME, 1)).rejects.toThrow('not found in DescribeStacks response');
   });
 
   it('should throw DeploymentError when stack has no status', async () => {
     mockSend.mockResolvedValue({ Stacks: [{ StackStatus: undefined }] });
 
-    await expect(pollStackForCompletionState(cfnClient, STACK_NAME, 1)).rejects.toThrow('has no status');
+    await expect(pollStackForTerminalState(cfnClient, STACK_NAME, 1)).rejects.toThrow('has no status');
   });
 
   it('should poll multiple times before reaching completion', async () => {
@@ -97,7 +97,7 @@ describe('pollStackForCompletionState', () => {
       return Promise.resolve({ Stacks: [{ StackStatus: 'UPDATE_COMPLETE' }] });
     });
 
-    const promise = pollStackForCompletionState(cfnClient, STACK_NAME, 5);
+    const promise = pollStackForTerminalState(cfnClient, STACK_NAME, 5);
     // Advance timers to allow polling iterations
     for (let i = 0; i < 5; i++) {
       jest.advanceTimersByTime(5000);
