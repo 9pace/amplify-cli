@@ -94,9 +94,16 @@ interface TemplateGeneratorConfig {
   region: string;
 }
 
+interface CategoryGeneratorEntry {
+  category: CATEGORY;
+  sourceStackId: string;
+  destinationStackId: string;
+  generator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>;
+}
+
 class TemplateGenerator {
   private _categoryStackMap: Map<CATEGORY, [string, string]>;
-  private readonly categoryTemplateGenerators: [CATEGORY, string, string, CategoryTemplateGenerator<CFN_CATEGORY_TYPE>][];
+  private readonly categoryTemplateGenerators: CategoryGeneratorEntry[];
   private readonly _cfnClient: CloudFormationClient;
   private readonly categoryGeneratorConfig = {
     auth: {
@@ -510,21 +517,21 @@ class TemplateGenerator {
       const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
 
       if (config) {
-        this.categoryTemplateGenerators.push([
+        this.categoryTemplateGenerators.push({
           category,
           sourceStackId,
           destinationStackId,
-          this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, config.resourcesToRefactor),
-        ]);
+          generator: this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, config.resourcesToRefactor),
+        });
       }
       // Only use the customResourceMap as a fallback, if its not in the TemplateGenerator config
       else if (customResourceMap && this.isCustomResource(category)) {
-        this.categoryTemplateGenerators.push([
+        this.categoryTemplateGenerators.push({
           category,
           sourceStackId,
           destinationStackId,
-          this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, [], customResourceMap),
-        ]);
+          generator: this.createCategoryTemplateGenerator(sourceStackId, destinationStackId, [], customResourceMap),
+        });
       }
     }
   }
@@ -569,8 +576,12 @@ class TemplateGenerator {
 
   private async generateCategoryTemplates(isRollback = false, customResourceMap?: ResourceMapping[]) {
     this.initializeCategoryGenerators(customResourceMap);
-    for (const [category, sourceCategoryStackId, destinationCategoryStackId, categoryTemplateGenerator] of this
-      .categoryTemplateGenerators) {
+    for (const {
+      category,
+      sourceStackId: sourceCategoryStackId,
+      destinationStackId: destinationCategoryStackId,
+      generator: categoryTemplateGenerator,
+    } of this.categoryTemplateGenerators) {
       let result: CategoryRefactorResult | undefined;
 
       if (customResourceMap && this.isCustomResource(category)) {
