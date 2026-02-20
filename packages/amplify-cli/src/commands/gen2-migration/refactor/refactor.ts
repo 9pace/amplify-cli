@@ -1,5 +1,4 @@
 /* eslint-disable spellcheck/spell-checker */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { AmplifyMigrationStep } from '../_step';
 import { AmplifyMigrationOperation } from '../_operation';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
@@ -254,7 +253,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     return categoryAssessments.map((a) => a.category);
   }
 
-  // Add all resources that match the categoryGeneratorConfig filters to assesments
+  // Add all resources that match the categoryGeneratorConfig filters to assessments
   private async assessCategoryResources(templateGenerator: TemplateGenerator): Promise<
     Array<{
       category: string;

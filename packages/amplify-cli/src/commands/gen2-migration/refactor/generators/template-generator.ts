@@ -81,6 +81,153 @@ const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
  * If it crosses 1000 lines or gains methods outside this pipeline flow, revisit decomposition.
  * See git history for the analysis that deferred the split (KIRO-refactor branch).
  */
+/**
+ * Discovers and maps category nested stacks between Gen1 and Gen2 root stacks.
+ *
+ * Queries both root stacks for their nested stacks, matches them by category,
+ * and returns a map of category → [sourceStackId, destinationStackId].
+ *
+ * Special handling for auth: Gen1 may have separate stacks for UserPool vs UserPoolGroups,
+ * while Gen2 combines them into one stack.
+ */
+async function discoverCategoryStacks(
+  cfnClient: CloudFormationClient,
+  gen1RootStack: string,
+  gen2RootStack: string,
+  isRollback: boolean,
+): Promise<Map<CATEGORY, [string, string]>> {
+  const categoryStackMap = new Map<CATEGORY, [string, string]>();
+
+  const sourceStackResourcesResponse = await cfnClient.send(new DescribeStackResourcesCommand({ StackName: gen1RootStack }));
+  const destStackResourcesResponse = await cfnClient.send(new DescribeStackResourcesCommand({ StackName: gen2RootStack }));
+
+  const sourceStackResources = sourceStackResourcesResponse.StackResources;
+  const destStackResources = destStackResourcesResponse.StackResources;
+  if (!sourceStackResources) {
+    throw new AmplifyError('InvalidStackError', {
+      message: 'No source stack resources found',
+      resolution: 'Ensure the source stack exists and is in a stable state.',
+    });
+  }
+  if (!destStackResources) {
+    throw new AmplifyError('InvalidStackError', {
+      message: 'No destination stack resources found',
+      resolution: 'Ensure the destination stack exists and is in a stable state.',
+    });
+  }
+
+  const sourceCategoryStacks = sourceStackResources.filter((r) => r.ResourceType === CFN_RESOURCE_STACK_TYPE);
+  const destinationCategoryStacks = destStackResources.filter((r) => r.ResourceType === CFN_RESOURCE_STACK_TYPE);
+  if (!sourceCategoryStacks || sourceCategoryStacks.length === 0) {
+    throw new AmplifyError('InvalidStackError', {
+      message: 'No nested category stacks found in source stack',
+      resolution: 'Ensure the source stack contains nested category stacks (auth, storage, etc.).',
+    });
+  }
+  if (!destinationCategoryStacks || destinationCategoryStacks.length === 0) {
+    throw new AmplifyError('InvalidStackError', {
+      message: 'No nested category stacks found in destination stack',
+      resolution: 'Ensure the destination stack contains nested category stacks (auth, storage, etc.).',
+    });
+  }
+
+  for (const { LogicalResourceId: sourceLogicalResourceId, PhysicalResourceId: sourcePhysicalResourceId } of sourceCategoryStacks) {
+    const category = CATEGORIES.find((c) => sourceLogicalResourceId?.startsWith(c));
+    if (!category) continue;
+
+    if (!sourcePhysicalResourceId) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `Source category stack '${sourceLogicalResourceId}' does not have a physical resource ID`,
+        resolution: 'Ensure the stack is in a stable state before running the migration.',
+      });
+    }
+    let destinationPhysicalResourceId: string | undefined;
+    let userPoolGroupDestinationPhysicalResourceId: string | undefined;
+
+    const correspondingCategoryStackInDestination = destinationCategoryStacks.find(({ LogicalResourceId: destLogicalId }) =>
+      destLogicalId?.startsWith(category),
+    );
+    if (!correspondingCategoryStackInDestination) {
+      throw new AmplifyError('StackStateError', {
+        message: `No corresponding category found in destination stack for ${category} category`,
+        resolution: 'Ensure your Gen2 stack has the corresponding category resources deployed before running the migration.',
+      });
+    }
+    destinationPhysicalResourceId = correspondingCategoryStackInDestination.PhysicalResourceId;
+
+    let isUserPoolGroupStack = false;
+
+    if (!isRollback && category === 'auth') {
+      const authCategory = await getGen1AuthCategory(cfnClient, sourcePhysicalResourceId);
+      isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
+    } else if (isRollback && category === 'auth') {
+      for (const { LogicalResourceId: destLogicalId, PhysicalResourceId: destPhysicalId } of destinationCategoryStacks) {
+        if (!destPhysicalId) {
+          throw new AmplifyError('InvalidStackError', {
+            message: `Destination auth category stack '${destLogicalId}' does not have a physical resource ID`,
+            resolution: 'Ensure the stack is in a stable state before running the migration.',
+          });
+        }
+        if (!destLogicalId?.startsWith('auth')) continue;
+
+        const authCategory = await getGen1AuthCategory(cfnClient, destPhysicalId);
+        isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
+
+        if (isUserPoolGroupStack) {
+          userPoolGroupDestinationPhysicalResourceId = destPhysicalId;
+        } else if (authCategory === 'auth') {
+          destinationPhysicalResourceId = destPhysicalId;
+        }
+      }
+    }
+
+    if (!destinationPhysicalResourceId) {
+      throw new AmplifyError('InvalidStackError', {
+        message: `No destination stack resolved for ${category} category`,
+        resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
+      });
+    }
+
+    if (!isUserPoolGroupStack || isRollback) {
+      categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
+    }
+    if (isUserPoolGroupStack) {
+      const destinationId =
+        isRollback && userPoolGroupDestinationPhysicalResourceId
+          ? userPoolGroupDestinationPhysicalResourceId
+          : destinationPhysicalResourceId;
+      categoryStackMap.set('auth-user-pool-group', [sourcePhysicalResourceId, destinationId]);
+    }
+  }
+
+  return categoryStackMap;
+}
+
+/**
+ * Determines the type of a Gen1 auth stack by parsing its Description metadata.
+ * @returns 'auth' for main auth stack, 'auth-user-pool-group' for groups stack, null if unknown
+ */
+async function getGen1AuthCategory(cfnClient: CloudFormationClient, stackName: string): Promise<CATEGORY | null> {
+  const describeStacksResponse = await cfnClient.send(new DescribeStacksCommand({ StackName: stackName }));
+  const stackDescription = describeStacksResponse?.Stacks?.[0]?.Description;
+  if (!stackDescription) return null;
+
+  try {
+    const parsed = JSON.parse(stackDescription);
+    if (typeof parsed === 'object' && 'stackType' in parsed) {
+      switch (parsed.stackType) {
+        case GEN1_USER_POOL_GROUPS_STACK_TYPE_DESCRIPTION:
+          return 'auth-user-pool-group';
+        case GEN1_AUTH_STACK_TYPE_DESCRIPTION:
+          return 'auth';
+      }
+    }
+  } catch {
+    // Description might not be valid JSON — fail silently
+  }
+  return null;
+}
+
 interface TemplateGeneratorConfig {
   gen1RootStack: string;
   gen2RootStack: string;
@@ -161,7 +308,7 @@ class TemplateGenerator {
 
   // Initialize for assessment - parse category stacks without generating templates
   public async initializeForAssessment(): Promise<void> {
-    await this.parseCategoryStacks();
+    this._categoryStackMap = await discoverCategoryStacks(this.cfnClient, this.gen1RootStack, this.gen2RootStack, false);
   }
 
   // Get stack template for a given stack ID
@@ -218,225 +365,9 @@ class TemplateGenerator {
   }
 
   public async rollback() {
-    await this.parseCategoryStacks(true);
+    this._categoryStackMap = await discoverCategoryStacks(this.cfnClient, this.gen1RootStack, this.gen2RootStack, true);
     return await this.generateCategoryTemplates(true);
   }
-
-  /**
-   * Discovers and maps category nested stacks between Gen1 and Gen2 root stacks.
-   *
-   * Queries both Gen1 (source) and Gen2 (destination) root stacks for their nested stacks
-   * Matches nested stacks by category (e.g., Gen1's "authXYZ" → Gen2's "authABC")
-   * Populates _categoryStackMap with: category → [sourceStackId, destinationStackId]
-   *
-   *
-   * Special handling for auth: Gen1 may have separate stacks for UserPool vs UserPoolGroups,
-   * while Gen2 combines them into one stack. The code detects this via stack description metadata.
-   *
-   * @param isRollback - If true, we're moving resources FROM Gen2 back TO Gen1 (reverse of migration)
-   */
-  private async parseCategoryStacks(isRollback = false): Promise<void> {
-    const sourceStackResourcesResponse = await this.cfnClient.send(
-      new DescribeStackResourcesCommand({
-        StackName: this.gen1RootStack,
-      }),
-    );
-    const destStackResourcesResponse = await this.cfnClient.send(
-      new DescribeStackResourcesCommand({
-        StackName: this.gen2RootStack,
-      }),
-    );
-
-    const sourceStackResources = sourceStackResourcesResponse.StackResources;
-    const destStackResources = destStackResourcesResponse.StackResources;
-    if (!sourceStackResources) {
-      throw new AmplifyError('InvalidStackError', {
-        message: 'No source stack resources found',
-        resolution: 'Ensure the source stack exists and is in a stable state.',
-      });
-    }
-    if (!destStackResources) {
-      throw new AmplifyError('InvalidStackError', {
-        message: 'No destination stack resources found',
-        resolution: 'Ensure the destination stack exists and is in a stable state.',
-      });
-    }
-
-    // Filter to only nested stacks (AWS::CloudFormation::Stack) to retrieve category stacks
-    const sourceCategoryStacks = sourceStackResources.filter((stackResource) => stackResource.ResourceType === CFN_RESOURCE_STACK_TYPE);
-    const destinationCategoryStacks = destStackResources.filter((stackResource) => stackResource.ResourceType === CFN_RESOURCE_STACK_TYPE);
-    if (!sourceCategoryStacks || sourceCategoryStacks.length === 0) {
-      throw new AmplifyError('InvalidStackError', {
-        message: 'No nested category stacks found in source stack',
-        resolution: 'Ensure the source stack contains nested category stacks (auth, storage, etc.).',
-      });
-    }
-    if (!destinationCategoryStacks || destinationCategoryStacks.length === 0) {
-      throw new AmplifyError('InvalidStackError', {
-        message: 'No nested category stacks found in destination stack',
-        resolution: 'Ensure the destination stack contains nested category stacks (auth, storage, etc.).',
-      });
-    }
-
-    for (const { LogicalResourceId: sourceLogicalResourceId, PhysicalResourceId: sourcePhysicalResourceId } of sourceCategoryStacks) {
-      // Check if this stack's logical ID starts with a known category name (e.g., "authXYZ123", "storageDEF456")
-      const category = CATEGORIES.find((category) => sourceLogicalResourceId?.startsWith(category));
-      if (!category) continue;
-
-      if (!sourcePhysicalResourceId) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `Source category stack '${sourceLogicalResourceId}' does not have a physical resource ID`,
-          resolution: 'Ensure the stack is in a stable state before running the migration.',
-        });
-      }
-      let destinationPhysicalResourceId: string | undefined;
-      let userPoolGroupDestinationPhysicalResourceId: string | undefined;
-
-      // find the corresponding category stack in Gen2 stack
-      const correspondingCategoryStackInDestination = destinationCategoryStacks.find(
-        ({ LogicalResourceId: destinationLogicalResourceId }) => destinationLogicalResourceId?.startsWith(category),
-      );
-      if (!correspondingCategoryStackInDestination) {
-        throw new AmplifyError('StackStateError', {
-          message: `No corresponding category found in destination stack for ${category} category`,
-          resolution: 'Ensure your Gen2 stack has the corresponding category resources deployed before running the migration.',
-        });
-      }
-      destinationPhysicalResourceId = correspondingCategoryStackInDestination.PhysicalResourceId;
-
-      // Gen1 can have TWO auth stacks (UserPool/IdentityPool + UserPoolGroups), Gen2 combines them
-      let isUserPoolGroupStack = false;
-
-      if (!isRollback && category === 'auth') {
-        // Forward migration: check if this Gen1 auth stack is specifically for UserPoolGroups
-        const gen1AuthTypeStack = await this.getGen1AuthCategory(sourcePhysicalResourceId);
-        isUserPoolGroupStack = gen1AuthTypeStack === 'auth-user-pool-group';
-      } else if (isRollback && category === 'auth') {
-        // Reverse migration: need to find both auth stacks in destination (Gen1) since Gen2 combined them
-        for (const {
-          LogicalResourceId: destinationLogicalResourceId,
-          PhysicalResourceId: _destinationPhysicalResourceId,
-        } of destinationCategoryStacks) {
-          if (!_destinationPhysicalResourceId) {
-            throw new AmplifyError('InvalidStackError', {
-              message: `Destination auth category stack '${destinationLogicalResourceId}' does not have a physical resource ID`,
-              resolution: 'Ensure the stack is in a stable state before running the migration.',
-            });
-          }
-          const destinationIsAuthCategory = destinationLogicalResourceId?.startsWith('auth');
-          if (!destinationIsAuthCategory) continue;
-
-          const gen1AuthTypeStack = await this.getGen1AuthCategory(_destinationPhysicalResourceId);
-          isUserPoolGroupStack = gen1AuthTypeStack === 'auth-user-pool-group';
-
-          if (isUserPoolGroupStack) {
-            userPoolGroupDestinationPhysicalResourceId = _destinationPhysicalResourceId;
-          } else if (gen1AuthTypeStack === 'auth') {
-            destinationPhysicalResourceId = _destinationPhysicalResourceId;
-          }
-        }
-      }
-
-      if (!destinationPhysicalResourceId) {
-        throw new AmplifyError('InvalidStackError', {
-          message: `No destination stack resolved for ${category} category`,
-          resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
-        });
-      }
-
-      // Store the mapping in _categoryStackMap
-      this.updateCategoryStackMap(
-        category,
-        sourcePhysicalResourceId,
-        destinationPhysicalResourceId,
-        isUserPoolGroupStack,
-        isRollback,
-        userPoolGroupDestinationPhysicalResourceId,
-      );
-    }
-  }
-
-  /**
-   * Stores a category mapping in _categoryStackMap.
-   *
-   * Handles the complexity of auth category where Gen1 has separate stacks for
-   * UserPool vs UserPoolGroups, but Gen2 combines them.
-   *
-   * @param category - The category name ('auth', 'storage', etc.)
-   * @param sourcePhysicalResourceId - The ARN/ID of the source (Gen1) nested stack
-   * @param destinationPhysicalResourceId - The ARN/ID of the destination (Gen2) nested stack
-   * @param isUserPoolGroupStack - True if this is specifically a UserPoolGroups stack (not main auth)
-   * @param isRollback - True if we're doing a reverse migration (Gen2 → Gen1)
-   * @param userPoolGroupDestinationPhysicalResourceId - For rollback: the separate UserPoolGroups stack in Gen1
-   */
-  private updateCategoryStackMap(
-    category: CATEGORY | string,
-    sourcePhysicalResourceId: string,
-    destinationPhysicalResourceId: string,
-    isUserPoolGroupStack: boolean,
-    isRollback: boolean,
-    userPoolGroupDestinationPhysicalResourceId?: string,
-  ): void {
-    // For non-UserPoolGroup stacks, or during rollback (where we need both mappings), store the main category mapping
-    // Example: 'auth' → [gen1AuthStackId, gen2AuthStackId]
-    //          'storage' → [gen1StorageStackId, gen2StorageStackId]
-    if (!isUserPoolGroupStack || isRollback) {
-      this.categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
-    }
-
-    // For UserPoolGroup stacks, store a separate mapping under 'auth-user-pool-group'
-    // This is needed because Gen1 has a separate stack for groups, but Gen2 combines them
-    if (isUserPoolGroupStack) {
-      // During rollback: use the separate Gen1 UserPoolGroups stack as destination
-      // During forward migration: use the same Gen2 auth stack (since Gen2 combines them)
-      const destinationId =
-        isRollback && userPoolGroupDestinationPhysicalResourceId
-          ? userPoolGroupDestinationPhysicalResourceId
-          : destinationPhysicalResourceId;
-
-      this.categoryStackMap.set('auth-user-pool-group', [sourcePhysicalResourceId, destinationId]);
-    }
-  }
-
-  /**
-   * Determines the type of a Gen1 auth stack by parsing its Description metadata.
-   *
-   * Gen1 Amplify stores JSON metadata in the stack's Description field, including a 'stackType'
-   * that indicates whether this is the main auth stack or the UserPoolGroups stack.
-   *
-   * @param stackName - The stack name/ARN to inspect
-   * @returns 'auth' for main auth stack, 'auth-user-pool-group' for groups stack, null if unknown
-   */
-  private getGen1AuthCategory = async (stackName: string): Promise<CATEGORY | null> => {
-    const describeStacksResponse = await this.cfnClient.send(
-      new DescribeStacksCommand({
-        StackName: stackName,
-      }),
-    );
-
-    const stackDescription = describeStacksResponse?.Stacks?.[0]?.Description;
-    if (!stackDescription) return null;
-
-    try {
-      // Gen1 stores metadata as JSON in the Description field
-      // Example: {"stackType": "auth-Cognito"} or {"stackType": "auth-Cognito-UserPool-Groups"}
-      const parsedStackDescription = JSON.parse(stackDescription);
-
-      if (typeof parsedStackDescription === 'object' && 'stackType' in parsedStackDescription) {
-        switch (parsedStackDescription.stackType) {
-          case GEN1_USER_POOL_GROUPS_STACK_TYPE_DESCRIPTION: // 'auth-Cognito-UserPool-Groups'
-            return 'auth-user-pool-group';
-          case GEN1_AUTH_STACK_TYPE_DESCRIPTION: // 'auth-Cognito'
-            return 'auth';
-        }
-      }
-    } catch (e) {
-      // Description might not be valid JSON (older stacks or different format)
-      // Fail silently and return null
-    }
-
-    return null;
-  };
 
   private isNoResourcesError(error: unknown): boolean {
     return error instanceof NoResourcesError;
@@ -450,7 +381,7 @@ class TemplateGenerator {
     category: string,
     categoryTemplateGenerator: CategoryTemplateGenerator<CFN_CATEGORY_TYPE>,
     sourceCategoryStackId: string,
-  ): Promise<[CFNTemplate, Parameter[]] | undefined> {
+  ): Promise<CFNTemplate | undefined> {
     try {
       const { newTemplate, parameters: gen1StackParameters } = await categoryTemplateGenerator.generateGen1PreProcessTemplate();
       // gen1StackParameters guaranteed by generateGen1PreProcessTemplate() which asserts Parameters
@@ -466,7 +397,7 @@ class TemplateGenerator {
       }
       this.logger.info(`Updated Gen 1 ${this.getStackCategoryName(category)} stack successfully`);
 
-      return [newTemplate, gen1StackParameters];
+      return newTemplate;
     } catch (e) {
       if (this.isNoResourcesError(e)) {
         this.logger.info(`No resources found to move in Gen 1 ${this.getStackCategoryName(category)} stack. Skipping update.`);
@@ -632,6 +563,9 @@ class TemplateGenerator {
         );
         await pollStackForCompletionState(this.cfnClient, destinationCategoryStackId, 30);
         if (!isRollback && result.oldDestinationTemplate) {
+          // Gen1 rollback is unnecessary here: processGen1Stack resolved dynamic references
+          // (!Ref, !GetAtt) to static values, but those values are correct. The resources
+          // haven't moved (refactor failed), so Gen1 is functional with the resolved template.
           await this.rollbackGen2Stack(
             category,
             destinationCategoryStackId,
@@ -660,7 +594,7 @@ class TemplateGenerator {
   ): Promise<CategoryRefactorResult | undefined> {
     const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
     if (!processGen1StackResponse) return undefined;
-    const [newGen1Template] = processGen1StackResponse;
+    const newGen1Template = processGen1StackResponse;
 
     const { newTemplate: newGen2Template } = await this.processGen2Stack(category, categoryTemplateGenerator, destinationCategoryStackId);
 
@@ -689,7 +623,7 @@ class TemplateGenerator {
   ): Promise<CategoryRefactorResult | undefined> {
     const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
     if (!processGen1StackResponse) return undefined;
-    const [newGen1Template] = processGen1StackResponse;
+    const newGen1Template = processGen1StackResponse;
 
     const { newTemplate, oldTemplate, parameters } = await this.processGen2Stack(
       category,
