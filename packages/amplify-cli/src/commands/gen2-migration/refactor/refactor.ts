@@ -324,20 +324,20 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
 
     // toStack is guaranteed set by extractParameters() which runs before this method
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const [fromStack, toStack] = direction === 'forward' ? [this.rootStackName, this.toStack!] : [this.toStack!, this.rootStackName];
+    const [gen1Stack, gen2Stack] = direction === 'forward' ? [this.rootStackName, this.toStack!] : [this.toStack!, this.rootStackName];
 
-    return new TemplateGenerator(
-      fromStack,
-      toStack,
+    return new TemplateGenerator({
+      gen1RootStack: gen1Stack,
+      gen2RootStack: gen2Stack,
       accountId,
       cfnClient,
       ssmClient,
       cognitoIdpClient,
-      this.appId,
-      this.currentEnvName,
-      this.logger,
-      this.region,
-    );
+      appId: this.appId,
+      environmentName: this.currentEnvName,
+      logger: this.logger,
+      region: this.region,
+    });
   }
 
   private async emitUsageAnalytics(envName: string, success: boolean): Promise<void> {

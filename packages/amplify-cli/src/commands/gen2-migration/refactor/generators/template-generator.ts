@@ -81,6 +81,19 @@ const GEN1_AUTH_STACK_TYPE_DESCRIPTION = 'auth-Cognito';
  * If it crosses 1000 lines or gains methods outside this pipeline flow, revisit decomposition.
  * See git history for the analysis that deferred the split (KIRO-refactor branch).
  */
+interface TemplateGeneratorConfig {
+  gen1RootStack: string;
+  gen2RootStack: string;
+  accountId: string;
+  cfnClient: CloudFormationClient;
+  ssmClient: SSMClient;
+  cognitoIdpClient: CognitoIdentityProviderClient;
+  appId: string;
+  environmentName: string;
+  logger: Logger;
+  region: string;
+}
+
 class TemplateGenerator {
   private _categoryStackMap: Map<CATEGORY, [string, string]>;
   private readonly categoryTemplateGenerators: [CATEGORY, string, string, CategoryTemplateGenerator<CFN_CATEGORY_TYPE>][];
@@ -100,21 +113,29 @@ class TemplateGenerator {
     },
   } as const;
 
-  constructor(
-    private readonly fromStack: string,
-    private readonly toStack: string,
-    private readonly accountId: string,
-    cfnClient: CloudFormationClient,
-    private readonly ssmClient: SSMClient,
-    private readonly cognitoIdpClient: CognitoIdentityProviderClient,
-    private readonly appId: string,
-    private readonly environmentName: string,
-    private readonly logger: Logger,
-    private readonly region: string,
-  ) {
+  private readonly gen1RootStack: string;
+  private readonly gen2RootStack: string;
+  private readonly accountId: string;
+  private readonly ssmClient: SSMClient;
+  private readonly cognitoIdpClient: CognitoIdentityProviderClient;
+  private readonly appId: string;
+  private readonly environmentName: string;
+  private readonly logger: Logger;
+  private readonly region: string;
+
+  constructor(config: TemplateGeneratorConfig) {
+    this.gen1RootStack = config.gen1RootStack;
+    this.gen2RootStack = config.gen2RootStack;
+    this.accountId = config.accountId;
+    this._cfnClient = config.cfnClient;
+    this.ssmClient = config.ssmClient;
+    this.cognitoIdpClient = config.cognitoIdpClient;
+    this.appId = config.appId;
+    this.environmentName = config.environmentName;
+    this.logger = config.logger;
+    this.region = config.region;
     this._categoryStackMap = new Map<CATEGORY, [string, string]>();
     this.categoryTemplateGenerators = [];
-    this._cfnClient = cfnClient;
   }
 
   // Public getter for categoryStackMap
@@ -210,12 +231,12 @@ class TemplateGenerator {
   private async parseCategoryStacks(isRollback = false): Promise<void> {
     const sourceStackResourcesResponse = await this.cfnClient.send(
       new DescribeStackResourcesCommand({
-        StackName: this.fromStack,
+        StackName: this.gen1RootStack,
       }),
     );
     const destStackResourcesResponse = await this.cfnClient.send(
       new DescribeStackResourcesCommand({
-        StackName: this.toStack,
+        StackName: this.gen2RootStack,
       }),
     );
 

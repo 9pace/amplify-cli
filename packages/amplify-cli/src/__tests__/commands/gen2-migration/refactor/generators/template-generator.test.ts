@@ -466,18 +466,18 @@ describe('TemplateGenerator', () => {
   // --- generateSelectedCategories tests ---
 
   it('should refactor selected categories from Gen1 to Gen2 successfully', async () => {
-    const generator = new TemplateGenerator(
-      GEN1_ROOT_STACK_NAME,
-      GEN2_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN1_ROOT_STACK_NAME,
+      gen2RootStack: GEN2_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await generator.initializeForAssessment();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
@@ -492,18 +492,18 @@ describe('TemplateGenerator', () => {
     mockGenerateGen1PreProcessTemplate.mockImplementationOnce(() => {
       throw new NoResourcesError('No resources to move in Gen1 stack');
     });
-    const generator = new TemplateGenerator(
-      GEN1_ROOT_STACK_NAME,
-      GEN2_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN1_ROOT_STACK_NAME,
+      gen2RootStack: GEN2_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await generator.initializeForAssessment();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
@@ -541,18 +541,18 @@ describe('TemplateGenerator', () => {
     };
     mockCfnClientSendMock.mockImplementation(failureSendMock);
 
-    const generator = new TemplateGenerator(
-      GEN1_ROOT_STACK_NAME,
-      GEN2_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN1_ROOT_STACK_NAME,
+      gen2RootStack: GEN2_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await expect(generator.initializeForAssessment()).rejects.toThrow(
       'No corresponding category found in destination stack for storage category',
     );
@@ -581,18 +581,18 @@ describe('TemplateGenerator', () => {
       return Promise.resolve({});
     });
 
-    const generator = new TemplateGenerator(
-      GEN1_ROOT_STACK_NAME,
-      GEN2_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN1_ROOT_STACK_NAME,
+      gen2RootStack: GEN2_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await generator.initializeForAssessment();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
@@ -603,18 +603,18 @@ describe('TemplateGenerator', () => {
 
   it('should rollback resources from Gen2 to Gen1 successfully', async () => {
     // Act
-    const generator = new TemplateGenerator(
-      GEN2_ROOT_STACK_NAME,
-      GEN1_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN2_ROOT_STACK_NAME,
+      gen2RootStack: GEN1_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await generator.rollback();
 
     // Assert
@@ -635,18 +635,18 @@ describe('TemplateGenerator', () => {
     delete clonedStubGetTemplate.Resources[GEN2_DDB_TABLE_LOGICAL_ID];
     mockReadTemplate.mockReturnValue(clonedStubGetTemplate);
     // Act
-    const generator = new TemplateGenerator(
-      GEN2_ROOT_STACK_NAME,
-      GEN1_ROOT_STACK_NAME,
-      ACCOUNT_ID,
-      STUB_CFN_CLIENT,
-      STUB_SSM_CLIENT,
-      STUB_COGNITO_IDP_CLIENT,
-      APP_ID,
-      ENV_NAME,
-      new Logger('mock', 'mock', 'mock'),
-      REGION,
-    );
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN2_ROOT_STACK_NAME,
+      gen2RootStack: GEN1_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
     await generator.rollback();
 
     // Assert
