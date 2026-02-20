@@ -47,7 +47,15 @@ const retrieveOAuthValues = async ({
       resolution: 'Ensure the Gen1 stack has a valid hostedUIProviderMeta parameter with OAuth provider configurations.',
     });
   }
-  const parsedValue = JSON.parse(value);
+  let parsedValue: unknown;
+  try {
+    parsedValue = JSON.parse(value);
+  } catch {
+    throw new AmplifyError('InvalidStackError', {
+      message: `OAuth parameter '${oAuthParameter.ParameterKey}' contains invalid JSON`,
+      resolution: 'Check the hostedUIProviderMeta parameter value in your Gen1 stack.',
+    });
+  }
   if (!Array.isArray(parsedValue) || parsedValue.length === 0) {
     throw new AmplifyError('InputValidationError', {
       message: INVALID_OAUTH_GEN1_PROVIDER_METADATA_ERROR,
