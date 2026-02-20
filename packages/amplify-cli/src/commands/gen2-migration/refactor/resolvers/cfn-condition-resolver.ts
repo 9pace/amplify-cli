@@ -129,14 +129,14 @@ class CFNConditionResolver {
       }
       const props = value.Properties;
       Object.entries(props).forEach(([propName, propValue]) => {
-        if (typeof propValue === 'object') {
-          props[propName] = this.resolveIfCondition(propValue, conditionValueMap);
-        } else if (Array.isArray(propValue)) {
+        if (Array.isArray(propValue)) {
           propValue.forEach((item, index) => {
             if (typeof item === 'object') {
               propValue[index] = this.resolveIfCondition(item, conditionValueMap);
             }
           });
+        } else if (typeof propValue === 'object') {
+          props[propName] = this.resolveIfCondition(propValue, conditionValueMap);
         }
       });
     });
