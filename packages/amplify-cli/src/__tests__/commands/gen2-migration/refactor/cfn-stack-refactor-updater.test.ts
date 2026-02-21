@@ -137,7 +137,7 @@ describe('tryRefactorStack', () => {
     for (let i = 0; i < 10; i++) await Promise.resolve();
     jest.advanceTimersByTime(12000);
 
-    await expect(promise).rejects.toThrow('did not reach a completion state');
+    await expect(promise).rejects.toThrow('did not reach a terminal state');
   });
 
   it('should throw when CreateStackRefactor returns no StackRefactorId', async () => {

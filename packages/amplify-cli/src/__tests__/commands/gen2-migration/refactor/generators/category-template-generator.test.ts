@@ -856,7 +856,7 @@ describe('CategoryTemplateGenerator', () => {
   });
 
   it('should preprocess gen1 template prior to refactor', async () => {
-    await expect(s3TemplateGenerator.generateGen1PreProcessTemplate()).resolves.toEqual({
+    await expect(s3TemplateGenerator.generateGen1PreProcessTemplate()).resolves.toMatchObject({
       oldTemplate: oldGen1Template,
       newTemplate: newGen1Template,
       parameters: gen1Params,
@@ -864,7 +864,7 @@ describe('CategoryTemplateGenerator', () => {
   });
 
   it('should remove gen2 resources from gen2 stack prior to refactor', async () => {
-    await expect(s3TemplateGenerator.generateGen2ResourceRemovalTemplate()).resolves.toEqual({
+    await expect(s3TemplateGenerator.generateGen2ResourceRemovalTemplate()).resolves.toMatchObject({
       oldTemplate: oldGen2Template,
       newTemplate: newGen2Template,
       parameters: gen1Params,
@@ -872,11 +872,13 @@ describe('CategoryTemplateGenerator', () => {
   });
 
   it('should refactor gen1 resources into gen2 stack', async () => {
-    const { newTemplate: newGen1Template } = await s3TemplateGenerator.generateGen1PreProcessTemplate();
-    const { newTemplate: newGen2Template } = await s3TemplateGenerator.generateGen2ResourceRemovalTemplate();
+    const { newTemplate: newGen1Template, resourcesToMove } = await s3TemplateGenerator.generateGen1PreProcessTemplate();
+    const { newTemplate: newGen2Template, resourcesToRemove } = await s3TemplateGenerator.generateGen2ResourceRemovalTemplate();
     const { sourceTemplate, destinationTemplate, logicalIdMapping } = s3TemplateGenerator.generateStackRefactorTemplates(
       newGen1Template,
       newGen2Template,
+      resourcesToMove,
+      resourcesToRemove,
     );
     expect(sourceTemplate).toEqual<CFNTemplate>(refactoredGen1Template);
     expect(destinationTemplate).toEqual<CFNTemplate>(refactoredGen2Template);
@@ -889,11 +891,13 @@ describe('CategoryTemplateGenerator', () => {
   });
 
   it('should refactor auth gen1 resources into gen2 stack', async () => {
-    const { newTemplate: newGen1Template } = await authTemplateGenerator.generateGen1PreProcessTemplate();
-    const { newTemplate: newGen2Template } = await authTemplateGenerator.generateGen2ResourceRemovalTemplate();
+    const { newTemplate: newGen1Template, resourcesToMove } = await authTemplateGenerator.generateGen1PreProcessTemplate();
+    const { newTemplate: newGen2Template, resourcesToRemove } = await authTemplateGenerator.generateGen2ResourceRemovalTemplate();
     const { sourceTemplate, destinationTemplate, logicalIdMapping } = authTemplateGenerator.generateStackRefactorTemplates(
       newGen1Template,
       newGen2Template,
+      resourcesToMove,
+      resourcesToRemove,
     );
     expect(sourceTemplate).toEqual<CFNTemplate>(refactoredGen1AuthTemplate);
     expect(destinationTemplate).toEqual<CFNTemplate>(refactoredGen2AuthTemplate);
@@ -962,15 +966,17 @@ describe('CategoryTemplateGenerator', () => {
       .mockImplementationOnce(sendFailureMock);
     await noGen1ResourcesToMoveS3TemplateGenerator.generateGen1PreProcessTemplate();
     const result = await noGen1ResourcesToMoveS3TemplateGenerator.generateGen2ResourceRemovalTemplate();
-    expect(result).toBeUndefined();
+    expect(result.resourcesToRemove.size).toBe(0);
   });
 
   it('should refactor DynamoDB gen1 resources into gen2 stack', async () => {
-    const { newTemplate: processedGen1Template } = await ddbTemplateGenerator.generateGen1PreProcessTemplate();
-    const { newTemplate: processedGen2Template } = await ddbTemplateGenerator.generateGen2ResourceRemovalTemplate();
+    const { newTemplate: processedGen1Template, resourcesToMove } = await ddbTemplateGenerator.generateGen1PreProcessTemplate();
+    const { newTemplate: processedGen2Template, resourcesToRemove } = await ddbTemplateGenerator.generateGen2ResourceRemovalTemplate();
     const { sourceTemplate, destinationTemplate, logicalIdMapping } = ddbTemplateGenerator.generateStackRefactorTemplates(
       processedGen1Template,
       processedGen2Template,
+      resourcesToMove,
+      resourcesToRemove,
     );
 
     expect(sourceTemplate).toEqual<CFNTemplate>(refactoredGen1DDBTemplate);
@@ -978,7 +984,7 @@ describe('CategoryTemplateGenerator', () => {
     expect(logicalIdMapping).toEqual(new Map<string, string>([[GEN1_DDB_TABLE_LOGICAL_ID, GEN2_DDB_TABLE_LOGICAL_ID]]));
   });
 
-  it('should throw when generateStackRefactorTemplates is called without calling generate methods first', () => {
+  it('should throw when generateStackRefactorTemplates is called with empty resource maps', () => {
     const freshGenerator = new CategoryTemplateGenerator({
       logger: new Logger('mock', 'mock', 'mock'),
       gen1StackId: GEN1_CATEGORY_STACK_ID,
@@ -993,7 +999,7 @@ describe('CategoryTemplateGenerator', () => {
       resourcesToMove: [CFN_S3_TYPE.Bucket],
     });
     const emptyTemplate = { Resources: {}, Description: '', AWSTemplateFormatVersion: '', Outputs: {} } as CFNTemplate;
-    expect(() => freshGenerator.generateStackRefactorTemplates(emptyTemplate, emptyTemplate)).toThrow(
+    expect(() => freshGenerator.generateStackRefactorTemplates(emptyTemplate, emptyTemplate, new Map(), new Map())).toThrow(
       'No resources identified for refactoring',
     );
   });

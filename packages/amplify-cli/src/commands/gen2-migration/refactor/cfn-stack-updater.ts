@@ -1,5 +1,5 @@
 import { CloudFormationClient, DescribeStacksCommand, Parameter, UpdateStackCommand } from '@aws-sdk/client-cloudformation';
-import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFNTemplate } from './types';
+import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFN_FAILED_STATE_SUFFIX, CFNTemplate } from './types';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 120;
@@ -40,16 +40,20 @@ export async function tryUpdateStack(
 }
 
 /**
- * Polls a stack until it reaches a terminal state (any status ending in _COMPLETE).
+ * Polls a stack until it reaches a terminal state (any status ending in _COMPLETE or _FAILED).
  * @param cfnClient
  * @param stackName
  * @param attempts number of attempts to poll. The interval between polls is 5 seconds.
+ * @param exitOnFailure when true (default), returns immediately on _FAILED states.
+ *   Set to false when using this as a "wait for stack to settle" gate (e.g. before a rollback),
+ *   so the stack can auto-rollback to a _COMPLETE state before the caller proceeds.
  * @returns the stack status string
  */
 export async function pollStackForTerminalState(
   cfnClient: CloudFormationClient,
   stackName: string,
   attempts: number = POLL_ATTEMPTS,
+  exitOnFailure = true,
 ): Promise<string> {
   do {
     const { Stacks } = await cfnClient.send(
@@ -72,6 +76,9 @@ export async function pollStackForTerminalState(
       });
     }
     if (stackStatus.endsWith(CFN_TERMINAL_STATE_SUFFIX)) {
+      return stackStatus;
+    }
+    if (exitOnFailure && stackStatus.endsWith(CFN_FAILED_STATE_SUFFIX)) {
       return stackStatus;
     }
     await new Promise((res) => setTimeout(() => res(''), POLL_INTERVAL_MS));

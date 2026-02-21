@@ -66,6 +66,19 @@ export interface CFNStackRefactorTemplates {
   logicalIdMapping: Map<string, string>;
 }
 
+/** Returned by CategoryTemplateGenerator.generateGen1PreProcessTemplate(). */
+export interface Gen1PreProcessResult extends CFNChangeTemplateWithParams {
+  resourcesToMove: ReadonlyMap<string, CFNResource>;
+}
+
+/** Returned by CategoryTemplateGenerator.generateGen2ResourceRemovalTemplate(). Always returned (never undefined). */
+export interface Gen2ResourceRemovalResult {
+  oldTemplate: CFNTemplate;
+  newTemplate: CFNTemplate;
+  parameters: Parameter[] | undefined;
+  resourcesToRemove: ReadonlyMap<string, CFNResource>;
+}
+
 /**
  * Result of preparing a single category for refactoring.
  * Returned by the branch methods in TemplateGenerator.generateCategoryTemplates.

@@ -7,7 +7,6 @@ import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { GetCallerIdentityCommand, STSClient } from '@aws-sdk/client-sts';
 import { AmplifyGen2MigrationValidations } from '../_validations';
-import { DescribeStacksCommand } from '@aws-sdk/client-cloudformation';
 import { TemplateGenerator } from './generators/template-generator';
 
 const createAccountIdError = () =>
@@ -26,8 +25,6 @@ interface CategoryAssessment {
 }
 
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
-  private toStack?: string;
-
   public async executeImplications(): Promise<string[]> {
     return ['Move stateful resources from your Gen1 app to be managed by your Gen2 app'];
   }
@@ -52,11 +49,8 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       {
         describe: async () => ['Move stateful resources from your Gen1 app to be managed by your Gen2 app'],
         execute: async () => {
-          // Extract parameters from context
-          this.extractParameters();
-
-          // Execute the stack refactoring
-          await this.executeStackRefactor();
+          const toStack = this.extractParameters();
+          await this.executeStackRefactor(toStack);
         },
       },
     ];
@@ -67,30 +61,31 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       {
         describe: async () => ['Move stateful resources from your Gen2 app back to your Gen1 app'],
         execute: async () => {
-          this.extractParameters();
-          await this.executeRollback();
+          const toStack = this.extractParameters();
+          await this.executeRollback(toStack);
         },
       },
     ];
   }
 
-  private extractParameters(): void {
-    this.toStack = this.context.parameters?.options?.to;
+  private extractParameters(): string {
+    const toStack = this.context.parameters?.options?.to;
 
-    if (!this.toStack) {
+    if (!toStack) {
       throw new AmplifyError('InputValidationError', { message: '--to is required' });
     }
+
+    return toStack;
   }
 
-  private async executeRollback(): Promise<void> {
-    const templateGenerator = await this.initializeTemplateGenerator('rollback');
+  private async executeRollback(toStack: string): Promise<void> {
+    const templateGenerator = await this.initializeTemplateGenerator('rollback', toStack);
     this.logger.info('🔧 Executing CloudFormation stack rollback...');
     await templateGenerator.rollback();
   }
 
-  private async executeStackRefactor(): Promise<void> {
-    // Initialize template generator and clients
-    const templateGenerator = await this.initializeTemplateGenerator('forward');
+  private async executeStackRefactor(toStack: string): Promise<void> {
+    const templateGenerator = await this.initializeTemplateGenerator('forward', toStack);
 
     // Initialize template generator (parse category stacks for assessment)
     // Populates _categoryStackMap with: category → [sourceStackId, destinationStackId]
@@ -167,9 +162,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
       // Check for OAuth (auth category only)
       let hasOAuth = false;
       if (category === 'auth') {
-        const stackInfo = await templateGenerator.cfnClient.send(new DescribeStacksCommand({ StackName: sourceCategoryStackId }));
-        const parameters = stackInfo.Stacks?.[0]?.Parameters || [];
-        hasOAuth = parameters.some((param) => param.ParameterKey === 'hostedUIProviderMeta');
+        hasOAuth = await templateGenerator.hasOAuthParameter(sourceCategoryStackId);
       }
 
       assessments.push({
@@ -184,7 +177,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     return assessments;
   }
 
-  private async initializeTemplateGenerator(direction: 'forward' | 'rollback'): Promise<TemplateGenerator> {
+  private async initializeTemplateGenerator(direction: 'forward' | 'rollback', toStack: string): Promise<TemplateGenerator> {
     const stsClient = new STSClient({});
     const callerIdentityResult = await stsClient.send(new GetCallerIdentityCommand({}));
     const accountId = callerIdentityResult.Account;
@@ -197,9 +190,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     const ssmClient = new SSMClient({});
     const cognitoIdpClient = new CognitoIdentityProviderClient({});
 
-    // toStack is guaranteed set by extractParameters() which runs before this method
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const [gen1Stack, gen2Stack] = direction === 'forward' ? [this.rootStackName, this.toStack!] : [this.toStack!, this.rootStackName];
+    const [gen1Stack, gen2Stack] = direction === 'forward' ? [this.rootStackName, toStack] : [toStack, this.rootStackName];
 
     return new TemplateGenerator({
       gen1RootStack: gen1Stack,

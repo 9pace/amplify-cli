@@ -1,5 +1,11 @@
-import { CloudFormationClient, DescribeStackResourcesCommand, GetTemplateCommand, Parameter } from '@aws-sdk/client-cloudformation';
-import CategoryTemplateGenerator from './category-template-generator';
+import {
+  CloudFormationClient,
+  DescribeStackResourcesCommand,
+  DescribeStacksCommand,
+  GetTemplateCommand,
+  Parameter,
+} from '@aws-sdk/client-cloudformation';
+import CategoryTemplateGenerator, { HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
 import { discoverCategoryStacks } from './stack-discovery';
 import {
   NON_CUSTOM_RESOURCE_CATEGORY,
@@ -136,19 +142,21 @@ class TemplateGenerator {
     return this._categoryStackMap;
   }
 
-  // Public getter for cfnClient
-  public get cfnClient() {
-    return this._cfnClient;
+  // Checks whether a stack has OAuth configured by looking for the hostedUIProviderMeta parameter
+  public async hasOAuthParameter(stackId: string): Promise<boolean> {
+    const stackInfo = await this._cfnClient.send(new DescribeStacksCommand({ StackName: stackId }));
+    const parameters = stackInfo.Stacks?.[0]?.Parameters || [];
+    return parameters.some((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
   }
 
   // Initialize for assessment - parse category stacks without generating templates
   public async initializeForAssessment(): Promise<void> {
-    this._categoryStackMap = await discoverCategoryStacks(this.cfnClient, this.gen1RootStack, this.gen2RootStack, false);
+    this._categoryStackMap = await discoverCategoryStacks(this._cfnClient, this.gen1RootStack, this.gen2RootStack, false);
   }
 
   // Get stack template for a given stack ID
   public async getStackTemplate(stackId: string): Promise<CFNTemplate | undefined> {
-    const { TemplateBody } = await this.cfnClient.send(
+    const { TemplateBody } = await this._cfnClient.send(
       new GetTemplateCommand({
         StackName: stackId,
       }),
@@ -176,7 +184,7 @@ class TemplateGenerator {
   }
 
   public async rollback() {
-    this._categoryStackMap = await discoverCategoryStacks(this.cfnClient, this.gen1RootStack, this.gen2RootStack, true);
+    this._categoryStackMap = await discoverCategoryStacks(this._cfnClient, this.gen1RootStack, this.gen2RootStack, true);
     return await this.generateCategoryTemplates(true);
   }
 
@@ -184,17 +192,17 @@ class TemplateGenerator {
     category: string,
     categoryTemplateGenerator: CategoryTemplateGenerator,
     sourceCategoryStackId: string,
-  ): Promise<CFNTemplate | undefined> {
+  ): Promise<{ newTemplate: CFNTemplate; resourcesToMove: ReadonlyMap<string, CFNResource> } | undefined> {
     const result = await categoryTemplateGenerator.generateGen1PreProcessTemplate();
     if (!result) {
       this.logger.info(`No resources found to move in Gen 1 ${category} stack. Skipping update.`);
       return undefined;
     }
-    const { newTemplate, parameters: gen1StackParameters } = result;
+    const { newTemplate, parameters: gen1StackParameters, resourcesToMove } = result;
     // gen1StackParameters guaranteed by generateGen1PreProcessTemplate() which asserts Parameters
     this.logger.info(`Updating Gen 1 ${category} stack...`);
 
-    const gen1StackUpdateStatus = await tryUpdateStack(this.cfnClient, sourceCategoryStackId, gen1StackParameters!, newTemplate);
+    const gen1StackUpdateStatus = await tryUpdateStack(this._cfnClient, sourceCategoryStackId, gen1StackParameters!, newTemplate);
 
     if (gen1StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
       throw new AmplifyError('InvalidStackError', {
@@ -204,7 +212,7 @@ class TemplateGenerator {
     }
     this.logger.info(`Updated Gen 1 ${category} stack successfully`);
 
-    return newTemplate;
+    return { newTemplate, resourcesToMove };
   }
 
   private async processGen2Stack(
@@ -215,20 +223,19 @@ class TemplateGenerator {
     newTemplate: CFNTemplate;
     oldTemplate: CFNTemplate;
     parameters?: Parameter[];
+    resourcesToRemove: ReadonlyMap<string, CFNResource>;
   }> {
     const result = await categoryTemplateGenerator.generateGen2ResourceRemovalTemplate();
-    if (!result) {
-      // No Gen2 resources to remove — return current state as a no-op so the caller
-      // can still proceed with the refactor (Gen1 resources may still need to move).
-      const currentTemplate = categoryTemplateGenerator.gen2Template!;
-      const parameters = categoryTemplateGenerator.gen2StackParameters;
-      return { newTemplate: currentTemplate, oldTemplate: currentTemplate, parameters };
+    const { oldTemplate, parameters, resourcesToRemove } = result;
+
+    if (resourcesToRemove.size === 0) {
+      return { newTemplate: oldTemplate, oldTemplate, parameters, resourcesToRemove };
     }
-    const { newTemplate, oldTemplate, parameters } = result;
+    const { newTemplate } = result;
 
     this.logger.info(`Updating Gen 2 ${category} stack...`);
 
-    const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, destinationCategoryStackId, parameters ?? [], newTemplate);
+    const gen2StackUpdateStatus = await tryUpdateStack(this._cfnClient, destinationCategoryStackId, parameters ?? [], newTemplate);
 
     if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
       throw new AmplifyError('InvalidStackError', {
@@ -238,7 +245,7 @@ class TemplateGenerator {
     }
     this.logger.info(`Updated Gen 2 ${category} stack successfully`);
 
-    return { newTemplate, oldTemplate, parameters };
+    return { newTemplate, oldTemplate, parameters, resourcesToRemove };
   }
 
   private initializeCategoryGenerators(categories?: Set<string>) {
@@ -269,7 +276,7 @@ class TemplateGenerator {
       gen2StackId: destinationStackId,
       region: this.region,
       accountId: this.accountId,
-      cfnClient: this.cfnClient,
+      cfnClient: this._cfnClient,
       ssmClient: this.ssmClient,
       cognitoIdpClient: this.cognitoIdpClient,
       appId: this.appId,
@@ -311,8 +318,6 @@ class TemplateGenerator {
         result.logicalIdMapping,
         sourceCategoryStackId,
         destinationCategoryStackId,
-        category,
-        isRollback,
         result.sourceTemplate,
         result.destinationTemplate,
       );
@@ -322,7 +327,7 @@ class TemplateGenerator {
             failedRefactorMetadata?.reason
           }. Status: ${failedRefactorMetadata?.status}. RefactorId: ${failedRefactorMetadata?.stackRefactorId}.`,
         );
-        await pollStackForTerminalState(this.cfnClient, destinationCategoryStackId, 30);
+        await pollStackForTerminalState(this._cfnClient, destinationCategoryStackId, 30, false);
         if (!isRollback && result.oldDestinationTemplate) {
           // Gen1 rollback is unnecessary here: processGen1Stack resolved dynamic references
           // (!Ref, !GetAtt) to static values, but those values are correct. The resources
@@ -348,18 +353,21 @@ class TemplateGenerator {
     sourceCategoryStackId: string,
     destinationCategoryStackId: string,
   ): Promise<CategoryRefactorResult | undefined> {
-    const processGen1StackResponse = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
-    if (!processGen1StackResponse) return undefined;
-    const newGen1Template = processGen1StackResponse;
+    const gen1Result = await this.processGen1Stack(category, categoryTemplateGenerator, sourceCategoryStackId);
+    if (!gen1Result) return undefined;
+    const { newTemplate: newGen1Template, resourcesToMove } = gen1Result;
 
-    const { newTemplate, oldTemplate, parameters } = await this.processGen2Stack(
-      category,
-      categoryTemplateGenerator,
-      destinationCategoryStackId,
-    );
+    const {
+      newTemplate: newGen2Template,
+      oldTemplate,
+      parameters,
+      resourcesToRemove,
+    } = await this.processGen2Stack(category, categoryTemplateGenerator, destinationCategoryStackId);
     const { sourceTemplate, destinationTemplate, logicalIdMapping } = categoryTemplateGenerator.generateStackRefactorTemplates(
       newGen1Template,
-      newTemplate,
+      newGen2Template,
+      resourcesToMove,
+      resourcesToRemove,
     );
     return {
       sourceTemplate,
@@ -391,8 +399,6 @@ class TemplateGenerator {
     logicalIdMappingForRefactor: Map<string, string>,
     sourceCategoryStackId: string,
     destinationCategoryStackId: string,
-    category: string,
-    isRollback: boolean,
     sourceTemplateForRefactor: CFNTemplate,
     destinationTemplateForRefactor: CFNTemplate,
   ) {
@@ -409,7 +415,7 @@ class TemplateGenerator {
         },
       });
     }
-    const [success, failedRefactorMetadata] = await tryRefactorStack(this.cfnClient, {
+    const [success, failedRefactorMetadata] = await tryRefactorStack(this._cfnClient, {
       StackDefinitions: [
         {
           TemplateBody: JSON.stringify(sourceTemplateForRefactor),
@@ -432,7 +438,7 @@ class TemplateGenerator {
     oldGen2Template: CFNTemplate,
   ) {
     this.logger.info(`Rolling back Gen 2 ${category} stack...`);
-    const gen2StackUpdateStatus = await tryUpdateStack(this.cfnClient, gen2CategoryStackId, gen2StackParameters ?? [], oldGen2Template);
+    const gen2StackUpdateStatus = await tryUpdateStack(this._cfnClient, gen2CategoryStackId, gen2StackParameters ?? [], oldGen2Template);
     if (gen2StackUpdateStatus !== CFNStackStatus.UPDATE_COMPLETE) {
       throw new AmplifyError('InvalidStackError', {
         message: `Gen 2 stack is in a failed state: ${gen2StackUpdateStatus}`,
@@ -478,7 +484,7 @@ class TemplateGenerator {
         resolution: 'Ensure the stack has outputs defined for the resources being migrated.',
       });
     }
-    const { StackResources } = await this.cfnClient.send(
+    const { StackResources } = await this._cfnClient.send(
       new DescribeStackResourcesCommand({
         StackName: sourceCategoryStackId,
       }),

@@ -12,11 +12,12 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 import {
   CFN_AUTH_TYPE,
   CFN_IAM_TYPE,
-  CFNChangeTemplateWithParams,
   CFNResource,
   CFNStackRefactorTemplates,
   CFNTemplate,
   CFN_RESOURCE_TYPES,
+  Gen1PreProcessResult,
+  Gen2ResourceRemovalResult,
 } from '../types';
 import CFNConditionResolver from '../resolvers/cfn-condition-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
@@ -62,10 +63,6 @@ export interface CategoryTemplateGeneratorConfig {
 
 class CategoryTemplateGenerator {
   private gen2DescribeStacksResponse: Stack | undefined;
-  private _gen1ResourcesToMove: Map<string, CFNResource>;
-  private _gen2ResourcesToRemove: Map<string, CFNResource>;
-  private _gen2Template: CFNTemplate | undefined;
-  private _gen2StackParameters: Parameter[] | undefined;
   private readonly logger: Logger;
   private readonly gen1StackId: string;
   private readonly gen2StackId: string;
@@ -90,28 +87,6 @@ class CategoryTemplateGenerator {
     this.appId = config.appId;
     this.environmentName = config.environmentName;
     this.resourcesToMove = config.resourcesToMove;
-    this._gen1ResourcesToMove = new Map();
-    this._gen2ResourcesToRemove = new Map();
-  }
-
-  /** Resources identified for migration from Gen1. Populated by generateGen1PreProcessTemplate(). */
-  public get gen1ResourcesToMove(): ReadonlyMap<string, CFNResource> {
-    return this._gen1ResourcesToMove;
-  }
-
-  /** Resources identified for removal from Gen2. Populated by generateGen2ResourceRemovalTemplate(). */
-  public get gen2ResourcesToRemove(): ReadonlyMap<string, CFNResource> {
-    return this._gen2ResourcesToRemove;
-  }
-
-  /** Gen2 template snapshot. Populated by generateGen2ResourceRemovalTemplate(). */
-  public get gen2Template(): CFNTemplate | undefined {
-    return this._gen2Template;
-  }
-
-  /** Gen2 stack parameters. Populated by generateGen2ResourceRemovalTemplate(). */
-  public get gen2StackParameters(): Parameter[] | undefined {
-    return this._gen2StackParameters;
   }
 
   /**
@@ -121,7 +96,7 @@ class CategoryTemplateGenerator {
    * resolved to static values. Otherwise, references pointing to resources that will
    * be removed would break the stack.
    */
-  public async generateGen1PreProcessTemplate(): Promise<CFNChangeTemplateWithParams | undefined> {
+  public async generateGen1PreProcessTemplate(): Promise<Gen1PreProcessResult | undefined> {
     this.logger.debug(`Gen1 Stack ID: ${this.gen1StackId}`);
 
     const gen1DescribeStacksResponse = await this.describeStack(this.gen1StackId);
@@ -149,21 +124,21 @@ class CategoryTemplateGenerator {
 
     const oldGen1Template = await this.readTemplate(this.gen1StackId);
     this.logger.debug(`Gen1 Template Resources count: ${Object.keys(oldGen1Template.Resources).length}`);
-    this._gen1ResourcesToMove = new Map(
+    const gen1ResourcesToMove: Map<string, CFNResource> = new Map(
       Object.entries(oldGen1Template.Resources).filter(([, value]) => {
         return this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type);
       }),
     );
-    this.logger.debug(`Gen1 Resources to move: ${Array.from(this._gen1ResourcesToMove.keys())}`);
-    for (const [logicalId, resource] of this._gen1ResourcesToMove) {
+    this.logger.debug(`Gen1 Resources to move: ${Array.from(gen1ResourcesToMove.keys())}`);
+    for (const [logicalId, resource] of gen1ResourcesToMove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
         this.logger.debug(`     DependsOn: ${JSON.stringify(resource.DependsOn)}`);
       }
     }
 
-    if (this._gen1ResourcesToMove.size === 0) return undefined;
-    const logicalResourceIds = [...this._gen1ResourcesToMove.keys()];
+    if (gen1ResourcesToMove.size === 0) return undefined;
+    const logicalResourceIds = [...gen1ResourcesToMove.keys()];
 
     const gen1ParametersResolvedTemplate = new CfnParameterResolver(oldGen1Template, extractStackNameFromId(this.gen1StackId)).resolve(
       Parameters,
@@ -187,8 +162,7 @@ class CategoryTemplateGenerator {
     // If all resources are being moved, add a placeholder resource now so it exists
     // in the stack before the refactor operation.
     const totalResources = Object.keys(oldGen1Template.Resources).length;
-    const resourcesToMoveCount = this._gen1ResourcesToMove.size;
-    if (totalResources === resourcesToMoveCount) {
+    if (totalResources === gen1ResourcesToMove.size) {
       this.logger.debug('All Gen1 resources will be moved, adding placeholder resource to Gen1 stack');
       gen1TemplateWithConditionsResolved.Resources['MigrationPlaceholder'] = {
         Type: 'AWS::CloudFormation::WaitConditionHandle',
@@ -202,6 +176,7 @@ class CategoryTemplateGenerator {
       oldTemplate: oldGen1Template,
       newTemplate: gen1TemplateWithConditionsResolved,
       parameters: Parameters,
+      resourcesToMove: gen1ResourcesToMove,
     };
   }
 
@@ -239,7 +214,7 @@ class CategoryTemplateGenerator {
     oAuthProviderCredentialsParam.ParameterValue = JSON.stringify(oAuthValues);
   }
 
-  public async generateGen2ResourceRemovalTemplate(): Promise<CFNChangeTemplateWithParams | undefined> {
+  public async generateGen2ResourceRemovalTemplate(): Promise<Gen2ResourceRemovalResult> {
     this.logger.debug(`Gen2 Stack ID: ${this.gen2StackId}`);
 
     this.gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
@@ -256,7 +231,6 @@ class CategoryTemplateGenerator {
         resolution: 'Ensure the Gen2 stack has outputs defined.',
       });
     }
-    this._gen2StackParameters = Parameters;
     if (Parameters) {
       this.logger.debug(`Gen2 Stack Parameters: ${JSON.stringify(Parameters, null, 2)}`);
     }
@@ -264,40 +238,52 @@ class CategoryTemplateGenerator {
 
     const oldGen2Template = await this.readTemplate(this.gen2StackId);
     this.logger.debug(`Gen2 Template Resources count: ${Object.keys(oldGen2Template.Resources).length}`);
-    this._gen2Template = oldGen2Template;
 
-    this._gen2ResourcesToRemove = new Map(
+    const gen2ResourcesToRemove: Map<string, CFNResource> = new Map(
       Object.entries(oldGen2Template.Resources).filter(([, value]) => {
         return this.resourcesToMove.some((resourceToMove) => resourceToMove.valueOf() === value.Type);
       }),
     );
-    this.logger.debug(`Gen2 Resources to remove: ${Array.from(this._gen2ResourcesToRemove.keys())}`);
-    for (const [logicalId, resource] of this._gen2ResourcesToRemove) {
+    this.logger.debug(`Gen2 Resources to remove: ${Array.from(gen2ResourcesToRemove.keys())}`);
+    for (const [logicalId, resource] of gen2ResourcesToRemove) {
       this.logger.debug(`   - ${logicalId}: Type=${resource.Type}`);
       if (resource.DependsOn) {
         this.logger.debug(`     DependsOn: ${JSON.stringify(resource.DependsOn)}`);
       }
     }
 
-    if (this._gen2ResourcesToRemove.size === 0) return undefined;
-    const logicalResourceIds = [...this._gen2ResourcesToRemove.keys()];
+    if (gen2ResourcesToRemove.size === 0) {
+      return {
+        oldTemplate: oldGen2Template,
+        newTemplate: oldGen2Template,
+        parameters: Parameters,
+        resourcesToRemove: gen2ResourcesToRemove,
+      };
+    }
+    const logicalResourceIds = [...gen2ResourcesToRemove.keys()];
 
     const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);
     return {
       oldTemplate: oldGen2Template,
       newTemplate: updatedGen2Template,
       parameters: Parameters,
+      resourcesToRemove: gen2ResourcesToRemove,
     };
   }
 
-  public generateStackRefactorTemplates(gen1Template: CFNTemplate, gen2Template: CFNTemplate): CFNStackRefactorTemplates {
-    if (this._gen1ResourcesToMove.size === 0 && this._gen2ResourcesToRemove.size === 0) {
+  public generateStackRefactorTemplates(
+    gen1Template: CFNTemplate,
+    gen2Template: CFNTemplate,
+    gen1ResourcesToMove: ReadonlyMap<string, CFNResource>,
+    gen2ResourcesToRemove: ReadonlyMap<string, CFNResource>,
+  ): CFNStackRefactorTemplates {
+    if (gen1ResourcesToMove.size === 0 && gen2ResourcesToRemove.size === 0) {
       throw new AmplifyError('InvalidStackError', {
         message: 'No resources identified for refactoring',
-        resolution: 'Call generateGen1PreProcessTemplate() and generateGen2ResourceRemovalTemplate() before generating refactor templates.',
+        resolution: 'Ensure at least one resource map is non-empty before generating refactor templates.',
       });
     }
-    return this.generateRefactorTemplates(this._gen1ResourcesToMove, this._gen2ResourcesToRemove, gen1Template, gen2Template);
+    return this.generateRefactorTemplates(gen1ResourcesToMove, gen2ResourcesToRemove, gen1Template, gen2Template);
   }
 
   public async readTemplate(stackId: string) {

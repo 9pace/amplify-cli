@@ -328,11 +328,13 @@ const stubCategoryTemplateGenerator = {
     oldTemplate: {},
     newTemplate: {},
     parameters: [],
+    resourcesToMove: new Map(),
   }),
   generateGen2ResourceRemovalTemplate: mockGenerateGen2ResourceRemovalTemplate.mockReturnValue({
     oldTemplate: {},
     newTemplate: {},
     parameters: [],
+    resourcesToRemove: new Map(),
   }),
   generateStackRefactorTemplates: mockGenerateStackRefactorTemplates.mockReturnValue({
     sourceTemplate: {},
@@ -510,9 +512,12 @@ describe('TemplateGenerator', () => {
   it('should proceed with refactor when Gen2 has no resources to remove but Gen1 does', async () => {
     // Asymmetric case: Gen1 has resources to move, Gen2 has no matching resources to remove.
     // processGen2Stack should use the fallback (current template) and still call generateStackRefactorTemplates.
-    mockGenerateGen2ResourceRemovalTemplate.mockResolvedValueOnce(undefined);
-    (stubCategoryTemplateGenerator as any).gen2Template = { Resources: {} };
-    (stubCategoryTemplateGenerator as any).gen2StackParameters = [];
+    mockGenerateGen2ResourceRemovalTemplate.mockResolvedValueOnce({
+      oldTemplate: { Resources: {} },
+      newTemplate: { Resources: {} },
+      parameters: [],
+      resourcesToRemove: new Map(),
+    });
     const generator = new TemplateGenerator({
       gen1RootStack: GEN1_ROOT_STACK_NAME,
       gen2RootStack: GEN2_ROOT_STACK_NAME,
