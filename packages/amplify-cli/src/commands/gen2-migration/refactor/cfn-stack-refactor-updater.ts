@@ -16,10 +16,11 @@ const POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 12000;
 /**
  * Refactors a stack with given source and destination template.
+ * Creates the refactor, polls for terminal state, executes it, then verifies both stacks updated.
  * @param cfnClient
  * @param createStackRefactorCommandInput
- * @param attempts number of attempts to poll CFN stack for update completion state. The interval between the polls is 12 seconds.
- * @returns a tuple containing the success/failed state and the reason if any.
+ * @param attempts number of attempts to poll. The interval between polls is 12 seconds.
+ * @returns a tuple of [success, failureDetails]. On success, failureDetails is undefined.
  */
 export async function tryRefactorStack(
   cfnClient: CloudFormationClient,
@@ -33,7 +34,7 @@ export async function tryRefactorStack(
       resolution: 'Retry the operation. If the problem persists, check the CloudFormation console for errors.',
     });
   }
-  let describeStackRefactorResponse = await pollStackRefactorForCompletionState(
+  let describeStackRefactorResponse = await pollStackRefactorForTerminalState(
     cfnClient,
     StackRefactorId,
     (_describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
@@ -60,7 +61,7 @@ export async function tryRefactorStack(
       StackRefactorId,
     }),
   );
-  describeStackRefactorResponse = await pollStackRefactorForCompletionState(
+  describeStackRefactorResponse = await pollStackRefactorForTerminalState(
     cfnClient,
     StackRefactorId,
     (describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
@@ -110,14 +111,14 @@ export async function tryRefactorStack(
 }
 
 /**
- * Polls a stack refactor operation for completion state
+ * Polls a stack refactor operation for a terminal state.
  * @param cfnClient
  * @param stackRefactorId
- * @param exitCondition a function that determines if the stack refactor operation has reached a completion state.
- * @param attempts number of attempts to poll for completion.
- * @returns the stack status
+ * @param exitCondition determines if the refactor has reached a terminal state.
+ * @param attempts number of attempts to poll.
+ * @returns the describe response once terminal state is reached
  */
-async function pollStackRefactorForCompletionState(
+async function pollStackRefactorForTerminalState(
   cfnClient: CloudFormationClient,
   stackRefactorId: string,
   exitCondition: (describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => boolean,
@@ -136,7 +137,7 @@ async function pollStackRefactorForCompletionState(
     attempts--;
   } while (attempts > 0);
   throw new AmplifyError('DeploymentError', {
-    message: `Stack refactor ${stackRefactorId} did not reach a completion state within the given time period.`,
+    message: `Stack refactor ${stackRefactorId} did not reach a terminal state within the given time period.`,
     resolution: `Check the CloudFormation console for stack refactor '${stackRefactorId}' to see the current status and any failure reasons. If the operation is still in progress, re-run the command after it completes.`,
   });
 }

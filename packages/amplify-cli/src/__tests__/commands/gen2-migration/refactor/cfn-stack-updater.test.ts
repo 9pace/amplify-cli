@@ -72,7 +72,7 @@ describe('pollStackForTerminalState', () => {
     // Flush microtasks so the first poll completes, then advance past the setTimeout
     await Promise.resolve();
     jest.advanceTimersByTime(5000);
-    await expect(promise).rejects.toThrow('did not reach a completion state');
+    await expect(promise).rejects.toThrow('did not reach a terminal state');
   });
 
   it('should throw DeploymentError when stack is not found', async () => {

@@ -17,6 +17,14 @@ const createAccountIdError = () =>
       'Verify your AWS credentials are configured and have permission to call sts:GetCallerIdentity. Run "aws sts get-caller-identity" to test.',
   });
 
+interface CategoryAssessment {
+  category: string;
+  resourceCount: number;
+  resourceTypes: string[];
+  hasOAuth: boolean;
+  stackId: string;
+}
+
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   private toStack?: string;
 
@@ -142,22 +150,8 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   }
 
   // Add all resources that match the categoryGeneratorConfig filters to assessments
-  private async assessCategoryResources(templateGenerator: TemplateGenerator): Promise<
-    Array<{
-      category: string;
-      resourceCount: number;
-      resourceTypes: string[];
-      hasOAuth: boolean;
-      stackId: string;
-    }>
-  > {
-    const assessments: Array<{
-      category: string;
-      resourceCount: number;
-      resourceTypes: string[];
-      hasOAuth: boolean;
-      stackId: string;
-    }> = [];
+  private async assessCategoryResources(templateGenerator: TemplateGenerator): Promise<CategoryAssessment[]> {
+    const assessments: CategoryAssessment[] = [];
 
     for (const [category, [sourceCategoryStackId]] of templateGenerator.categoryStackMap.entries()) {
       const sourceTemplate = await templateGenerator.getStackTemplate(sourceCategoryStackId);

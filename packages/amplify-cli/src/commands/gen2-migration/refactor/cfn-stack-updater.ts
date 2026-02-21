@@ -40,11 +40,11 @@ export async function tryUpdateStack(
 }
 
 /**
- * Polls a stack for completion state
+ * Polls a stack until it reaches a terminal state (any status ending in _COMPLETE).
  * @param cfnClient
  * @param stackName
- * @param attempts number of attempts to poll for completion.
- * @returns the stack status
+ * @param attempts number of attempts to poll. The interval between polls is 5 seconds.
+ * @returns the stack status string
  */
 export async function pollStackForTerminalState(
   cfnClient: CloudFormationClient,
@@ -78,7 +78,7 @@ export async function pollStackForTerminalState(
     attempts--;
   } while (attempts > 0);
   throw new AmplifyError('DeploymentError', {
-    message: `Stack ${stackName} did not reach a completion state within the given time period.`,
+    message: `Stack ${stackName} did not reach a terminal state within the given time period.`,
     resolution: `Check the CloudFormation console for stack '${stackName}' to see the current status and any failure reasons. If the stack is still in progress, re-run the command after it completes.`,
   });
 }

@@ -432,6 +432,10 @@ class CategoryTemplateGenerator {
     const stackResources = await this.describeStackResources(this.gen2StackId);
     this.logger.debug(`Gen2 Stack Resources count: ${stackResources.length}`);
 
+    // Resolver ordering differs from Gen1 path (parameter → output → dependency → condition).
+    // Gen2 removal only needs dependency + output resolution — no parameters or conditions to resolve
+    // because Gen2 templates are CDK-generated with static values. Dependencies are stripped first
+    // so the output resolver doesn't try to resolve refs from resources about to be deleted.
     const gen2TemplateWithDepsResolved = new CfnDependencyResolver(clonedGen2Template).resolve(resourcesToRemove);
 
     const resolvedRefsGen2Template = new CfnOutputResolver(gen2TemplateWithDepsResolved, this.region, this.accountId).resolve(
