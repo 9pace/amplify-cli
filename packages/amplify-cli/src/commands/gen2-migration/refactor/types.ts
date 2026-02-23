@@ -152,8 +152,6 @@ export type CFN_RESOURCE_TYPES =
   | CFN_SQS_TYPE
   | CFN_LAMBDA_TYPE;
 
-export type AWS_RESOURCE_ATTRIBUTES = 'Arn';
-
 export enum CFN_PSEUDO_PARAMETERS_REF {
   StackName = 'AWS::StackName',
 }

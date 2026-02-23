@@ -1,4 +1,4 @@
-import { AWS_RESOURCE_ATTRIBUTES, CFN_RESOURCE_TYPES, CFNTemplate } from '../types';
+import { CFN_RESOURCE_TYPES, CFNTemplate } from '../types';
 import { Output, StackResource } from '@aws-sdk/client-cloudformation';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
@@ -70,9 +70,9 @@ class CfnOutputResolver {
         const resourceType = this.template.Resources[logicalResourceId].Type as CFN_RESOURCE_TYPES;
         // groups! is safe: the regex named capture group (?<AttributeName>\w+) guarantees a match
         const attributeName = fnGetAttRegExpResult.value.groups!.AttributeName;
-        const resource = this.getResourceAttribute(attributeName as AWS_RESOURCE_ATTRIBUTES, resourceType, stackOutputValue);
-        if (resource) {
-          stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExp, this.buildFnGetAttReplace(resource));
+        const arn = this.getResourceArn(resourceType, stackOutputValue);
+        if (arn) {
+          stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExp, `"${arn}"`);
         }
       }
     });
@@ -142,13 +142,9 @@ class CfnOutputResolver {
           if (groups.AttributeName === 'Arn') {
             // Few resources like SQS have their physical ids as their HTTP URLs. We need to construct the arn manually in such cases.
             const resourceId = stackResourcePhysicalId.startsWith('http') ? stackResourcePhysicalId.split('/')[2] : stackResourcePhysicalId;
-            const resourceArn = this.getResourceAttribute(
-              groups.AttributeName,
-              stackResourceWithMatchingLogicalId.ResourceType as CFN_RESOURCE_TYPES,
-              resourceId,
-            );
+            const resourceArn = this.getResourceArn(stackResourceWithMatchingLogicalId.ResourceType as CFN_RESOURCE_TYPES, resourceId);
             if (resourceArn) {
-              stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExpPerLogicalId, `"${resourceArn.Arn}"`);
+              stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExpPerLogicalId, `"${resourceArn}"`);
             } else {
               stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(
                 fnGetAttRegExpPerLogicalId,
@@ -168,70 +164,30 @@ class CfnOutputResolver {
   }
 
   /**
-   * Get resource attribute based on attribute name, resource type and resource identifier.
-   * Only Arn is supported for now since that is what is used in gen1 and gen2 stacks for Auth and Storage categories.
-   * @param attributeName
-   * @param resourceType
-   * @param resourceIdentifier
-   * @private
+   * Constructs an ARN for a given resource type and identifier.
+   * Returns undefined for unrecognized resource types.
    */
-  private getResourceAttribute(
-    attributeName: AWS_RESOURCE_ATTRIBUTES,
-    resourceType: CFN_RESOURCE_TYPES,
-    resourceIdentifier: string,
-  ): Record<string, string> | undefined {
-    switch (attributeName) {
-      case 'Arn': {
-        switch (resourceType) {
-          case 'AWS::S3::Bucket':
-            return {
-              Arn: `arn:aws:s3:::${resourceIdentifier}`,
-            };
-          case 'AWS::DynamoDB::Table':
-            return {
-              Arn: `arn:aws:dynamodb:${this.region}:${this.accountId}:table/${resourceIdentifier}`,
-            };
-          case 'AWS::Cognito::UserPool':
-            return {
-              Arn: `arn:aws:cognito-idp:${this.region}:${this.accountId}:userpool/${resourceIdentifier}`,
-            };
-          case 'AWS::IAM::Role':
-            return {
-              // output is already in ARN format
-              Arn: resourceIdentifier.startsWith('arn:aws:iam')
-                ? resourceIdentifier
-                : `arn:aws:iam::${this.accountId}:role/${resourceIdentifier}`,
-            };
-          case 'AWS::SQS::Queue':
-            return {
-              Arn: `arn:aws:sqs:${this.region}:${this.accountId}:${resourceIdentifier}`,
-            };
-          case 'AWS::Lambda::Function':
-            return {
-              Arn: `arn:aws:lambda:${this.region}:${this.accountId}:function:${resourceIdentifier}`,
-            };
-          case 'AWS::Kinesis::Stream':
-            return {
-              // output is already in ARN format
-              Arn: resourceIdentifier,
-            };
-          default:
-            return undefined;
-        }
-      }
+  private getResourceArn(resourceType: CFN_RESOURCE_TYPES, resourceIdentifier: string): string | undefined {
+    switch (resourceType) {
+      case 'AWS::S3::Bucket':
+        return `arn:aws:s3:::${resourceIdentifier}`;
+      case 'AWS::DynamoDB::Table':
+        return `arn:aws:dynamodb:${this.region}:${this.accountId}:table/${resourceIdentifier}`;
+      case 'AWS::Cognito::UserPool':
+        return `arn:aws:cognito-idp:${this.region}:${this.accountId}:userpool/${resourceIdentifier}`;
+      case 'AWS::IAM::Role':
+        return resourceIdentifier.startsWith('arn:aws:iam')
+          ? resourceIdentifier
+          : `arn:aws:iam::${this.accountId}:role/${resourceIdentifier}`;
+      case 'AWS::SQS::Queue':
+        return `arn:aws:sqs:${this.region}:${this.accountId}:${resourceIdentifier}`;
+      case 'AWS::Lambda::Function':
+        return `arn:aws:lambda:${this.region}:${this.accountId}:function:${resourceIdentifier}`;
+      case 'AWS::Kinesis::Stream':
+        return resourceIdentifier;
       default:
         return undefined;
     }
-  }
-
-  /**
-   * Build a custom replace function to replace Fn::GetAtt references with resource attribute values.
-   * @param record
-   * @private
-   */
-  private buildFnGetAttReplace(record: Record<string, string>) {
-    return (_match: string, _p1: string, _offset: number, _text: string, groups: Record<string, string>) =>
-      `"${record[groups.AttributeName]}"`;
   }
 }
 
