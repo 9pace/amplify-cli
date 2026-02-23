@@ -74,7 +74,6 @@ export async function discoverCategoryStacks(
       });
     }
     let destinationPhysicalResourceId: string | undefined;
-    let userPoolGroupDestinationPhysicalResourceId: string | undefined;
 
     const correspondingCategoryStackInDestination = destinationCategoryStacks.find(({ LogicalResourceId: destLogicalId }) =>
       destLogicalId?.startsWith(category),
@@ -87,60 +86,82 @@ export async function discoverCategoryStacks(
     }
     destinationPhysicalResourceId = correspondingCategoryStackInDestination.PhysicalResourceId;
 
-    let isUserPoolGroupStack = false;
+    if (category === 'auth') {
+      // Forward: classify the source auth stack (Gen1 may have separate UserPool vs UserPoolGroups stacks).
+      // Rollback: classify all destination auth stacks (Gen1 is now the destination).
+      const stackIdsToClassify = isRollback
+        ? destinationCategoryStacks
+            .filter((s) => s.LogicalResourceId?.startsWith('auth'))
+            .map((s) => {
+              if (!s.PhysicalResourceId) {
+                throw new AmplifyError('InvalidStackError', {
+                  message: `Destination auth category stack '${s.LogicalResourceId}' does not have a physical resource ID`,
+                  resolution: 'Ensure the stack is in a stable state before running the migration.',
+                });
+              }
+              return s.PhysicalResourceId;
+            })
+        : [sourcePhysicalResourceId];
 
-    // Auth stack discovery is asymmetric between forward and rollback:
-    // Forward: Gen1 may have separate stacks for UserPool vs UserPoolGroups,
-    //   so we check the SOURCE stack's description to classify it.
-    // Rollback: Gen1 is now the DESTINATION, so we iterate all destination auth
-    //   stacks and classify each to find the user pool group stack separately.
-    if (!isRollback && category === 'auth') {
-      const authCategory = await getGen1AuthCategory(cfnClient, sourcePhysicalResourceId);
-      isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
-    } else if (isRollback && category === 'auth') {
-      for (const { LogicalResourceId: destLogicalId, PhysicalResourceId: destPhysicalId } of destinationCategoryStacks) {
-        if (!destPhysicalId) {
-          throw new AmplifyError('InvalidStackError', {
-            message: `Destination auth category stack '${destLogicalId}' does not have a physical resource ID`,
-            resolution: 'Ensure the stack is in a stable state before running the migration.',
-          });
-        }
-        if (!destLogicalId?.startsWith('auth')) continue;
+      const { authStackId, userPoolGroupStackId } = await classifyAuthStacks(cfnClient, stackIdsToClassify);
 
-        const authCategory = await getGen1AuthCategory(cfnClient, destPhysicalId);
-        isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
-
-        if (isUserPoolGroupStack) {
-          userPoolGroupDestinationPhysicalResourceId = destPhysicalId;
-        } else if (authCategory === 'auth') {
-          destinationPhysicalResourceId = destPhysicalId;
-        }
+      if (isRollback && authStackId) {
+        destinationPhysicalResourceId = authStackId;
       }
-    }
 
-    if (!destinationPhysicalResourceId) {
-      throw new AmplifyError('InvalidStackError', {
-        message: `No destination stack resolved for ${category} category`,
-        resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
-      });
-    }
+      if (!destinationPhysicalResourceId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `No destination stack resolved for ${category} category`,
+          resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
+        });
+      }
 
-    // Forward: only add the main auth entry when this is NOT a user pool group stack.
-    // Rollback: always add the main auth entry — Gen2 has a single auth stack that
-    // contains both user pool and user pool group resources.
-    if (!isUserPoolGroupStack || isRollback) {
+      // Forward: only add the main auth entry when this is NOT a user pool group stack.
+      // Rollback: always add the main auth entry.
+      if (!userPoolGroupStackId || isRollback) {
+        categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
+      }
+      if (userPoolGroupStackId) {
+        const destinationId = isRollback ? userPoolGroupStackId : destinationPhysicalResourceId;
+        categoryStackMap.set(NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, [sourcePhysicalResourceId, destinationId]);
+      }
+    } else {
+      if (!destinationPhysicalResourceId) {
+        throw new AmplifyError('InvalidStackError', {
+          message: `No destination stack resolved for ${category} category`,
+          resolution: 'Ensure the destination stack has the corresponding category resources deployed.',
+        });
+      }
       categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
-    }
-    if (isUserPoolGroupStack) {
-      const destinationId =
-        isRollback && userPoolGroupDestinationPhysicalResourceId
-          ? userPoolGroupDestinationPhysicalResourceId
-          : destinationPhysicalResourceId;
-      categoryStackMap.set(NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, [sourcePhysicalResourceId, destinationId]);
     }
   }
 
   return categoryStackMap;
+}
+
+interface AuthStackClassification {
+  authStackId: string | undefined;
+  userPoolGroupStackId: string | undefined;
+}
+
+/**
+ * Classifies auth stacks by their Description metadata.
+ * Direction-agnostic: the caller decides which stack IDs to pass.
+ */
+async function classifyAuthStacks(cfnClient: CloudFormationClient, stackIds: string[]): Promise<AuthStackClassification> {
+  let authStackId: string | undefined;
+  let userPoolGroupStackId: string | undefined;
+
+  for (const stackId of stackIds) {
+    const category = await getGen1AuthCategory(cfnClient, stackId);
+    if (category === NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP) {
+      userPoolGroupStackId = stackId;
+    } else if (category === NON_CUSTOM_RESOURCE_CATEGORY.AUTH) {
+      authStackId = stackId;
+    }
+  }
+
+  return { authStackId, userPoolGroupStackId };
 }
 
 /**
