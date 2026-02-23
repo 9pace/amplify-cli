@@ -89,6 +89,11 @@ export async function discoverCategoryStacks(
 
     let isUserPoolGroupStack = false;
 
+    // Auth stack discovery is asymmetric between forward and rollback:
+    // Forward: Gen1 may have separate stacks for UserPool vs UserPoolGroups,
+    //   so we check the SOURCE stack's description to classify it.
+    // Rollback: Gen1 is now the DESTINATION, so we iterate all destination auth
+    //   stacks and classify each to find the user pool group stack separately.
     if (!isRollback && category === 'auth') {
       const authCategory = await getGen1AuthCategory(cfnClient, sourcePhysicalResourceId);
       isUserPoolGroupStack = authCategory === 'auth-user-pool-group';
@@ -120,6 +125,9 @@ export async function discoverCategoryStacks(
       });
     }
 
+    // Forward: only add the main auth entry when this is NOT a user pool group stack.
+    // Rollback: always add the main auth entry — Gen2 has a single auth stack that
+    // contains both user pool and user pool group resources.
     if (!isUserPoolGroupStack || isRollback) {
       categoryStackMap.set(category, [sourcePhysicalResourceId, destinationPhysicalResourceId]);
     }

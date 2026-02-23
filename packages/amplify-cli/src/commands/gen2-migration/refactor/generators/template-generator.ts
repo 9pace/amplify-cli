@@ -19,11 +19,15 @@ import {
   ResourceMapping,
   CFN_ANALYTICS_TYPE,
   CategoryRefactorResult,
+  GEN1_WEB_APP_CLIENT,
+  GEN2_NATIVE_APP_CLIENT,
+  RefactorResult,
+  isRefactorFailure,
 } from '../types';
 import { pollStackForTerminalState, tryUpdateStack } from '../cfn-stack-updater';
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
-import { tryRefactorStack } from '../cfn-stack-refactor-updater';
+import { refactorStack } from '../cfn-stack-refactor-updater';
 import CfnOutputResolver from '../resolvers/cfn-output-resolver';
 import CfnDependencyResolver from '../resolvers/cfn-dependency-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
@@ -49,7 +53,7 @@ const ANALYTICS_RESOURCES_TO_REFACTOR = [CFN_ANALYTICS_TYPE.Stream];
 // The following is only used for rollback operation
 const GEN1_RESOURCE_TYPE_TO_LOGICAL_RESOURCE_IDS_MAP = new Map<string, string>([
   [CFN_AUTH_TYPE.UserPool.valueOf(), 'UserPool'],
-  [CFN_AUTH_TYPE.UserPoolClient.valueOf(), 'UserPoolClientWeb'],
+  [CFN_AUTH_TYPE.UserPoolClient.valueOf(), GEN1_WEB_APP_CLIENT],
   [CFN_AUTH_TYPE.IdentityPool.valueOf(), 'IdentityPool'],
   [CFN_AUTH_TYPE.IdentityPoolRoleAttachment.valueOf(), 'IdentityPoolRoleMap'],
   [CFN_AUTH_TYPE.UserPoolDomain.valueOf(), 'UserPoolDomain'],
@@ -63,7 +67,6 @@ const LOGICAL_IDS_TO_REMOVE_FOR_ROLLBACK_MAP = new Map<NON_CUSTOM_RESOURCE_CATEG
   [NON_CUSTOM_RESOURCE_CATEGORY.STORAGE, [CFN_S3_TYPE.Bucket, CFN_DYNAMODB_TYPE.Table]],
   [NON_CUSTOM_RESOURCE_CATEGORY.ANALYTICS, ANALYTICS_RESOURCES_TO_REFACTOR],
 ]);
-const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
 
 /**
  * Orchestrates CloudFormation stack refactoring between Gen1 and Gen2 stacks.
@@ -314,18 +317,19 @@ class TemplateGenerator {
       if (!result) continue;
 
       this.logger.info(`Moving ${category} resources from ${this.getSourceToDestinationMessage(isRollback)} stack...`);
-      const { success, failedRefactorMetadata } = await this.refactorResources(
+      const refactorResult = await this.refactorResources(
         result.logicalIdMapping,
         sourceCategoryStackId,
         destinationCategoryStackId,
         result.sourceTemplate,
         result.destinationTemplate,
       );
-      if (!success) {
+      if (isRefactorFailure(refactorResult)) {
+        const { failure } = refactorResult;
         this.logger.info(
           `Moving ${category} resources from ${this.getSourceToDestinationMessage(isRollback)} stack failed. Reason: ${
-            failedRefactorMetadata?.reason
-          }. Status: ${failedRefactorMetadata?.status}. RefactorId: ${failedRefactorMetadata?.stackRefactorId}.`,
+            failure.reason
+          }. Status: ${failure.status}. RefactorId: ${failure.stackRefactorId}.`,
         );
         await pollStackForTerminalState(this._cfnClient, destinationCategoryStackId, 30, false);
         if (!isRollback && result.oldDestinationTemplate) {
@@ -401,7 +405,7 @@ class TemplateGenerator {
     destinationCategoryStackId: string,
     sourceTemplateForRefactor: CFNTemplate,
     destinationTemplateForRefactor: CFNTemplate,
-  ) {
+  ): Promise<RefactorResult> {
     const resourceMappings: ResourceMapping[] = [];
     for (const [sourceLogicalId, destinationLogicalId] of logicalIdMappingForRefactor) {
       resourceMappings.push({
@@ -415,7 +419,7 @@ class TemplateGenerator {
         },
       });
     }
-    const [success, failedRefactorMetadata] = await tryRefactorStack(this._cfnClient, {
+    return refactorStack(this._cfnClient, {
       StackDefinitions: [
         {
           TemplateBody: JSON.stringify(sourceTemplateForRefactor),
@@ -428,7 +432,6 @@ class TemplateGenerator {
       ],
       ResourceMappings: resourceMappings,
     });
-    return { success, failedRefactorMetadata };
   }
 
   private async rollbackGen2Stack(

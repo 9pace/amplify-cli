@@ -8,7 +8,7 @@ import {
   StackRefactorExecutionStatus,
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
-import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFN_FAILED_STATE_SUFFIX, FailedRefactorResponse } from './types';
+import { CFNStackStatus, CFN_TERMINAL_STATE_SUFFIX, CFN_FAILED_STATE_SUFFIX, RefactorResult } from './types';
 import { pollStackForTerminalState } from './cfn-stack-updater';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
@@ -20,13 +20,14 @@ const POLL_INTERVAL_MS = 12000;
  * @param cfnClient
  * @param createStackRefactorCommandInput
  * @param attempts number of attempts to poll. The interval between polls is 12 seconds.
- * @returns a tuple of [success, failureDetails]. On success, failureDetails is undefined.
+ * @returns RefactorResult — { success: true } on success, { success: false, failure } with details on operational failure.
+ *   Throws on unrecoverable errors (timeout, missing stacks, stack not UPDATE_COMPLETE).
  */
-export async function tryRefactorStack(
+export async function refactorStack(
   cfnClient: CloudFormationClient,
   createStackRefactorCommandInput: CreateStackRefactorCommandInput,
   attempts = POLL_ATTEMPTS,
-): Promise<[boolean, FailedRefactorResponse | undefined]> {
+): Promise<RefactorResult> {
   const { StackRefactorId } = await cfnClient.send(new CreateStackRefactorCommand(createStackRefactorCommandInput));
   if (!StackRefactorId) {
     throw new AmplifyError('DeploymentError', {
@@ -47,14 +48,14 @@ export async function tryRefactorStack(
     attempts,
   );
   if (describeStackRefactorResponse.Status !== StackRefactorStatus.CREATE_COMPLETE) {
-    return [
-      false,
-      {
+    return {
+      success: false,
+      failure: {
         status: describeStackRefactorResponse.Status,
         reason: describeStackRefactorResponse.StatusReason,
         stackRefactorId: StackRefactorId,
       },
-    ];
+    };
   }
   await cfnClient.send(
     new ExecuteStackRefactorCommand({
@@ -74,14 +75,14 @@ export async function tryRefactorStack(
     attempts,
   );
   if (describeStackRefactorResponse.ExecutionStatus !== StackRefactorExecutionStatus.EXECUTE_COMPLETE) {
-    return [
-      false,
-      {
+    return {
+      success: false,
+      failure: {
         status: describeStackRefactorResponse.ExecutionStatus,
         stackRefactorId: StackRefactorId,
         reason: describeStackRefactorResponse.ExecutionStatusReason,
       },
-    ];
+    };
   }
 
   const sourceStackName = createStackRefactorCommandInput.StackDefinitions?.[0].StackName;
@@ -107,7 +108,7 @@ export async function tryRefactorStack(
     });
   }
 
-  return [true, undefined];
+  return { success: true };
 }
 
 /**

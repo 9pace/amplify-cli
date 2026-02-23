@@ -7,7 +7,7 @@ import {
   StackRefactorExecutionStatus,
   StackRefactorStatus,
 } from '@aws-sdk/client-cloudformation';
-import { tryRefactorStack } from '../../../../commands/gen2-migration/refactor/cfn-stack-refactor-updater';
+import { refactorStack } from '../../../../commands/gen2-migration/refactor/cfn-stack-refactor-updater';
 import { pollStackForTerminalState } from '../../../../commands/gen2-migration/refactor/cfn-stack-updater';
 
 jest.mock('../../../../commands/gen2-migration/refactor/cfn-stack-updater', () => ({
@@ -34,7 +34,7 @@ const INPUT: CreateStackRefactorCommandInput = {
 
 afterEach(() => jest.clearAllMocks());
 
-describe('tryRefactorStack', () => {
+describe('refactorStack', () => {
   it('should return success when create, execute, and stack updates all complete', async () => {
     mockSend.mockImplementation((command: unknown) => {
       if (command instanceof CreateStackRefactorCommand) {
@@ -53,10 +53,9 @@ describe('tryRefactorStack', () => {
     });
     mockPollStack.mockResolvedValue('UPDATE_COMPLETE');
 
-    const [success, metadata] = await tryRefactorStack(cfnClient, INPUT, 1);
+    const result = await refactorStack(cfnClient, INPUT, 1);
 
-    expect(success).toBe(true);
-    expect(metadata).toBeUndefined();
+    expect(result).toEqual({ success: true });
     expect(mockSend).toHaveBeenCalledTimes(4); // create, describe, execute, describe
     expect(mockPollStack).toHaveBeenCalledTimes(2);
     expect(mockPollStack).toHaveBeenCalledWith(cfnClient, SOURCE_STACK);
@@ -77,13 +76,15 @@ describe('tryRefactorStack', () => {
       return Promise.resolve({});
     });
 
-    const [success, metadata] = await tryRefactorStack(cfnClient, INPUT, 1);
+    const result = await refactorStack(cfnClient, INPUT, 1);
 
-    expect(success).toBe(false);
-    expect(metadata).toEqual({
-      status: StackRefactorStatus.CREATE_FAILED,
-      reason: 'Validation error',
-      stackRefactorId: REFACTOR_ID,
+    expect(result).toEqual({
+      success: false,
+      failure: {
+        status: StackRefactorStatus.CREATE_FAILED,
+        reason: 'Validation error',
+        stackRefactorId: REFACTOR_ID,
+      },
     });
     expect(mockPollStack).not.toHaveBeenCalled();
   });
@@ -110,13 +111,15 @@ describe('tryRefactorStack', () => {
       return Promise.resolve({});
     });
 
-    const [success, metadata] = await tryRefactorStack(cfnClient, INPUT, 1);
+    const result = await refactorStack(cfnClient, INPUT, 1);
 
-    expect(success).toBe(false);
-    expect(metadata).toEqual({
-      status: StackRefactorExecutionStatus.EXECUTE_FAILED,
-      reason: 'Resource conflict',
-      stackRefactorId: REFACTOR_ID,
+    expect(result).toEqual({
+      success: false,
+      failure: {
+        status: StackRefactorExecutionStatus.EXECUTE_FAILED,
+        reason: 'Resource conflict',
+        stackRefactorId: REFACTOR_ID,
+      },
     });
     expect(mockPollStack).not.toHaveBeenCalled();
   });
@@ -132,7 +135,7 @@ describe('tryRefactorStack', () => {
       return Promise.resolve({});
     });
 
-    const promise = tryRefactorStack(cfnClient, INPUT, 1);
+    const promise = refactorStack(cfnClient, INPUT, 1);
     // Flush microtasks so the async flow reaches the setTimeout
     for (let i = 0; i < 10; i++) await Promise.resolve();
     jest.advanceTimersByTime(12000);
@@ -148,7 +151,7 @@ describe('tryRefactorStack', () => {
       return Promise.resolve({});
     });
 
-    await expect(tryRefactorStack(cfnClient, INPUT, 1)).rejects.toThrow('CreateStackRefactor did not return a StackRefactorId');
+    await expect(refactorStack(cfnClient, INPUT, 1)).rejects.toThrow('CreateStackRefactor did not return a StackRefactorId');
   });
 
   it('should throw when source stack does not reach UPDATE_COMPLETE', async () => {
@@ -169,7 +172,7 @@ describe('tryRefactorStack', () => {
     });
     mockPollStack.mockResolvedValue('ROLLBACK_COMPLETE');
 
-    await expect(tryRefactorStack(cfnClient, INPUT, 1)).rejects.toThrow(`${SOURCE_STACK} was not updated successfully`);
+    await expect(refactorStack(cfnClient, INPUT, 1)).rejects.toThrow(`${SOURCE_STACK} was not updated successfully`);
   });
 
   it('should throw when destination stack does not reach UPDATE_COMPLETE', async () => {
@@ -190,7 +193,7 @@ describe('tryRefactorStack', () => {
     });
     mockPollStack.mockResolvedValueOnce('UPDATE_COMPLETE').mockResolvedValueOnce('ROLLBACK_COMPLETE');
 
-    await expect(tryRefactorStack(cfnClient, INPUT, 1)).rejects.toThrow(`${DEST_STACK} was not updated successfully`);
+    await expect(refactorStack(cfnClient, INPUT, 1)).rejects.toThrow(`${DEST_STACK} was not updated successfully`);
   });
 
   it('should throw when stack definitions are missing stack names', async () => {
@@ -215,6 +218,6 @@ describe('tryRefactorStack', () => {
       ResourceMappings: [],
     };
 
-    await expect(tryRefactorStack(cfnClient, inputWithoutNames, 1)).rejects.toThrow('missing source or destination stack name');
+    await expect(refactorStack(cfnClient, inputWithoutNames, 1)).rejects.toThrow('missing source or destination stack name');
   });
 });

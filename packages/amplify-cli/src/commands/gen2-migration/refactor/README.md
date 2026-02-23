@@ -67,7 +67,7 @@ For each category (auth, storage, analytics):
    - Build Gen1→Gen2 logical ID mapping using `MULTI_INSTANCE_MATCHERS`
    - Remove resources from Gen1 template, add to Gen2 template with mapped IDs
 
-4. **Execute refactor** (`tryRefactorStack`)
+4. **Execute refactor** (`refactorStack`)
    - CreateStackRefactor → poll → ExecuteStackRefactor → poll
    - Poll both stacks for terminal state
 

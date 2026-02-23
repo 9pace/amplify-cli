@@ -179,6 +179,15 @@ export type FailedRefactorResponse = {
   status: StackRefactorStatus | StackRefactorExecutionStatus | undefined;
 };
 
+export type RefactorResult = { success: true } | { success: false; failure: FailedRefactorResponse };
+
+export function isRefactorFailure(result: RefactorResult): result is Extract<RefactorResult, { success: false }> {
+  return !result.success;
+}
+
+export const GEN1_WEB_APP_CLIENT = 'UserPoolClientWeb';
+export const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
+
 export enum GEN2_AUTH_LOGICAL_RESOURCE_ID {
   IDENTITY_POOL_ROLE_ATTACHMENT = 'IdentityPoolRoleAttachment',
 }

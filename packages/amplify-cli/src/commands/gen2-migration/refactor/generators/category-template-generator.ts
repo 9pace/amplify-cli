@@ -18,6 +18,8 @@ import {
   CFN_RESOURCE_TYPES,
   Gen1PreProcessResult,
   Gen2ResourceRemovalResult,
+  GEN1_WEB_APP_CLIENT,
+  GEN2_NATIVE_APP_CLIENT,
 } from '../types';
 import CFNConditionResolver from '../resolvers/cfn-condition-resolver';
 import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
@@ -31,8 +33,6 @@ import { Logger } from '../../../gen2-migration';
 export const HOSTED_PROVIDER_META_PARAMETER_NAME = 'hostedUIProviderMeta';
 const HOSTED_PROVIDER_CREDENTIALS_PARAMETER_NAME = 'hostedUIProviderCreds';
 const USER_POOL_ID_OUTPUT_KEY_NAME = 'UserPoolId';
-const GEN1_WEB_APP_CLIENT = 'UserPoolClientWeb';
-const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
 
 /**
  * Multi-instance resource types require custom matching logic to pair Gen1 → Gen2 resources.
@@ -62,7 +62,6 @@ export interface CategoryTemplateGeneratorConfig {
 }
 
 class CategoryTemplateGenerator {
-  private gen2DescribeStacksResponse: Stack | undefined;
   private readonly logger: Logger;
   private readonly gen1StackId: string;
   private readonly gen2StackId: string;
@@ -217,14 +216,14 @@ class CategoryTemplateGenerator {
   public async generateGen2ResourceRemovalTemplate(): Promise<Gen2ResourceRemovalResult> {
     this.logger.debug(`Gen2 Stack ID: ${this.gen2StackId}`);
 
-    this.gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
-    if (!this.gen2DescribeStacksResponse) {
+    const gen2DescribeStacksResponse = await this.describeStack(this.gen2StackId);
+    if (!gen2DescribeStacksResponse) {
       throw new AmplifyError('InvalidStackError', {
         message: `Failed to describe Gen2 stack '${this.gen2StackId}'`,
         resolution: 'Ensure the stack exists and is accessible.',
       });
     }
-    const { Parameters, Outputs } = this.gen2DescribeStacksResponse;
+    const { Parameters, Outputs } = gen2DescribeStacksResponse;
     if (!Outputs) {
       throw new AmplifyError('InvalidStackError', {
         message: `Gen2 stack '${this.gen2StackId}' has no outputs`,
@@ -262,7 +261,7 @@ class CategoryTemplateGenerator {
     }
     const logicalResourceIds = [...gen2ResourcesToRemove.keys()];
 
-    const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds);
+    const updatedGen2Template = await this.removeGen2ResourcesFromGen2Stack(oldGen2Template, logicalResourceIds, Outputs);
     return {
       oldTemplate: oldGen2Template,
       newTemplate: updatedGen2Template,
@@ -408,11 +407,9 @@ class CategoryTemplateGenerator {
     return gen1ToGen2ResourceLogicalIdMapping;
   }
 
-  private async removeGen2ResourcesFromGen2Stack(gen2Template: CFNTemplate, resourcesToRemove: string[]) {
+  private async removeGen2ResourcesFromGen2Stack(gen2Template: CFNTemplate, resourcesToRemove: string[], stackOutputs: Output[]) {
     this.logger.debug(`Gen2 resources to remove from stack: ${resourcesToRemove}`);
     const clonedGen2Template = JSON.parse(JSON.stringify(gen2Template));
-    // Guaranteed by generateGen2ResourceRemovalTemplate() which asserts Outputs before this call
-    const stackOutputs = this.gen2DescribeStacksResponse!.Outputs!;
 
     this.logger.debug('Describing Gen2 stack resources...');
     const stackResources = await this.describeStackResources(this.gen2StackId);
