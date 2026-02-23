@@ -311,7 +311,7 @@ class CategoryTemplateGenerator {
     ).Stacks?.[0];
   }
 
-  private async describeStackResources(stackId: string) {
+  public async describeStackResources(stackId: string) {
     const { StackResources } = await this.cfnClient.send(
       new DescribeStackResourcesCommand({
         StackName: stackId,

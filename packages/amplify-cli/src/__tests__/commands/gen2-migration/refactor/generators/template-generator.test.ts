@@ -37,6 +37,7 @@ const mockGenerateStackRefactorTemplates = jest.fn();
 const mockGenerateRefactorTemplates = jest.fn();
 const mockReadTemplate = jest.fn();
 const mockDescribeStack = jest.fn();
+const mockDescribeStackResources = jest.fn();
 const REGION = 'us-east-1';
 const getStackId = (stackName: string, category: NON_CUSTOM_RESOURCE_CATEGORY) => {
   // In Gen1, user pool group and auth are their own stacks. In Gen2, they are combined into 1.
@@ -347,6 +348,7 @@ const stubCategoryTemplateGenerator = {
     logicalIdMapping: new Map([['ResourceA', 'ResourceB']]),
   }),
   readTemplate: mockReadTemplate.mockReturnValue(stubReadTemplate),
+  describeStackResources: mockDescribeStackResources.mockReturnValue(mockDescribeGen2AuthStackResources.StackResources),
   describeStack: mockDescribeStack.mockReturnValue({
     Outputs: [
       {
@@ -674,6 +676,24 @@ describe('TemplateGenerator', () => {
     successfulRollbackAssertions(1);
     assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH, true);
     assertRefactorSequenceForCategory(NON_CUSTOM_RESOURCE_CATEGORY.AUTH_USER_POOL_GROUP, true);
+  });
+
+  it('should throw when rollback encounters empty stack resources', async () => {
+    mockDescribeStackResources.mockRejectedValue(new Error(`No resources found in stack '${GEN2_AUTH_STACK_ID}'`));
+    const generator = new TemplateGenerator({
+      gen1RootStack: GEN2_ROOT_STACK_NAME,
+      gen2RootStack: GEN1_ROOT_STACK_NAME,
+      accountId: ACCOUNT_ID,
+      cfnClient: STUB_CFN_CLIENT,
+      ssmClient: STUB_SSM_CLIENT,
+      cognitoIdpClient: STUB_COGNITO_IDP_CLIENT,
+      appId: APP_ID,
+      environmentName: ENV_NAME,
+      logger: new Logger('mock', 'mock', 'mock'),
+      region: REGION,
+    });
+
+    await expect(generator.rollback()).rejects.toThrow('No resources found in stack');
   });
 
   function successfulRollbackAssertions(numCategoriesToSkipUpdate = 0) {

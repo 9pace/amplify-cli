@@ -1,10 +1,4 @@
-import {
-  CloudFormationClient,
-  DescribeStackResourcesCommand,
-  DescribeStacksCommand,
-  GetTemplateCommand,
-  Parameter,
-} from '@aws-sdk/client-cloudformation';
+import { CloudFormationClient, DescribeStacksCommand, GetTemplateCommand, Parameter } from '@aws-sdk/client-cloudformation';
 import CategoryTemplateGenerator, { HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
 import { discoverCategoryStacks } from './stack-discovery';
 import {
@@ -487,17 +481,7 @@ class TemplateGenerator {
         resolution: 'Ensure the stack has outputs defined for the resources being migrated.',
       });
     }
-    const { StackResources } = await this._cfnClient.send(
-      new DescribeStackResourcesCommand({
-        StackName: sourceCategoryStackId,
-      }),
-    );
-    if (!StackResources) {
-      throw new AmplifyError('InvalidStackError', {
-        message: `No resources found in stack '${sourceCategoryStackId}'`,
-        resolution: 'Ensure the stack exists and contains resources.',
-      });
-    }
+    const StackResources = await categoryTemplateGenerator.describeStackResources(sourceCategoryStackId);
     const newSourceTemplateWithParametersResolved = new CfnParameterResolver(newSourceTemplate).resolve(Parameters ?? []);
     const newSourceTemplateWithOutputsResolved = new CfnOutputResolver(
       newSourceTemplateWithParametersResolved,
