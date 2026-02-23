@@ -33,6 +33,7 @@ const INPUT: CreateStackRefactorCommandInput = {
 };
 
 afterEach(() => jest.clearAllMocks());
+afterAll(() => jest.useRealTimers());
 
 describe('refactorStack', () => {
   it('should return success when create, execute, and stack updates all complete', async () => {

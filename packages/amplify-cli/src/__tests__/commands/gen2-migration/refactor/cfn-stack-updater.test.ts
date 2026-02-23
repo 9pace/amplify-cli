@@ -16,6 +16,7 @@ const mockSend = jest.fn();
 const cfnClient = { send: mockSend } as unknown as CloudFormationClient;
 
 afterEach(() => jest.clearAllMocks());
+afterAll(() => jest.useRealTimers());
 
 describe('tryUpdateStack', () => {
   it('should update stack and return completion status', async () => {

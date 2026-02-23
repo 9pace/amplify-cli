@@ -29,6 +29,7 @@ import assert from 'node:assert';
 import { Logger } from '../../../../../commands/gen2-migration';
 
 jest.useFakeTimers();
+afterAll(() => jest.useRealTimers());
 
 const mockCfnClientSendMock = jest.fn();
 const mockGenerateGen1PreProcessTemplate = jest.fn();
