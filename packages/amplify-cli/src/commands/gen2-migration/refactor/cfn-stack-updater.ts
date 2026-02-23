@@ -32,7 +32,7 @@ export async function tryUpdateStack(
     );
     return pollStackForTerminalState(cfnClient, stackName, attempts);
   } catch (e) {
-    if (!(e && typeof e === 'object' && 'message' in e && typeof e.message === 'string' && e.message.includes(NO_UPDATES_MESSAGE))) {
+    if (!(e instanceof Error && e.message.includes(NO_UPDATES_MESSAGE))) {
       throw e;
     }
     return CFNStackStatus.UPDATE_COMPLETE;
