@@ -139,24 +139,15 @@ class CfnOutputResolver {
             });
           }
 
+          let replacement = stackResourcePhysicalId;
           if (groups.AttributeName === 'Arn') {
             // Few resources like SQS have their physical ids as their HTTP URLs. We need to construct the arn manually in such cases.
             const resourceId = stackResourcePhysicalId.startsWith('http') ? stackResourcePhysicalId.split('/')[2] : stackResourcePhysicalId;
-            const resourceArn = this.getResourceArn(stackResourceWithMatchingLogicalId.ResourceType as CFN_RESOURCE_TYPES, resourceId);
-            if (resourceArn) {
-              stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExpPerLogicalId, `"${resourceArn}"`);
-            } else {
-              stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(
-                fnGetAttRegExpPerLogicalId,
-                `"${stackResourcePhysicalId}"`,
-              );
-            }
-          } else {
-            stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(
-              fnGetAttRegExpPerLogicalId,
-              `"${stackResourcePhysicalId}"`,
-            );
+            replacement =
+              this.getResourceArn(stackResourceWithMatchingLogicalId.ResourceType as CFN_RESOURCE_TYPES, resourceId) ??
+              stackResourcePhysicalId;
           }
+          stackTemplateResourcesString = stackTemplateResourcesString.replaceAll(fnGetAttRegExpPerLogicalId, `"${replacement}"`);
         }
       }
     }
