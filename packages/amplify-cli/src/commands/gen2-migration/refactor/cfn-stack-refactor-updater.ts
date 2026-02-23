@@ -14,6 +14,9 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
 const POLL_ATTEMPTS = 300;
 const POLL_INTERVAL_MS = 12000;
+
+const isTerminalStatus = (status: string | undefined): boolean =>
+  !!status && (status.endsWith(CFN_TERMINAL_STATE_SUFFIX) || status.endsWith(CFN_FAILED_STATE_SUFFIX));
 /**
  * Refactors a stack with given source and destination template.
  * Creates the refactor, polls for terminal state, executes it, then verifies both stacks updated.
@@ -38,13 +41,7 @@ export async function refactorStack(
   let describeStackRefactorResponse = await pollStackRefactorForTerminalState(
     cfnClient,
     StackRefactorId,
-    (_describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
-      if (!_describeStackRefactorResponse.Status) return false;
-      return (
-        _describeStackRefactorResponse.Status.endsWith(CFN_TERMINAL_STATE_SUFFIX) ||
-        _describeStackRefactorResponse.Status.endsWith(CFN_FAILED_STATE_SUFFIX)
-      );
-    },
+    (resp) => isTerminalStatus(resp.Status),
     attempts,
   );
   if (describeStackRefactorResponse.Status !== StackRefactorStatus.CREATE_COMPLETE) {
@@ -65,13 +62,7 @@ export async function refactorStack(
   describeStackRefactorResponse = await pollStackRefactorForTerminalState(
     cfnClient,
     StackRefactorId,
-    (describeStackRefactorResponse: DescribeStackRefactorCommandOutput) => {
-      if (!describeStackRefactorResponse.ExecutionStatus) return false;
-      return (
-        describeStackRefactorResponse.ExecutionStatus.endsWith(CFN_TERMINAL_STATE_SUFFIX) ||
-        describeStackRefactorResponse.ExecutionStatus.endsWith(CFN_FAILED_STATE_SUFFIX)
-      );
-    },
+    (resp) => isTerminalStatus(resp.ExecutionStatus),
     attempts,
   );
   if (describeStackRefactorResponse.ExecutionStatus !== StackRefactorExecutionStatus.EXECUTE_COMPLETE) {
