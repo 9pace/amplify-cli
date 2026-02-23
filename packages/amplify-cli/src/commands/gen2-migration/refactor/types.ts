@@ -51,15 +51,6 @@ export interface CFNTemplate {
   Outputs: Record<string, CFNOutput>;
 }
 
-export interface CFNChangeTemplate {
-  oldTemplate: CFNTemplate;
-  newTemplate: CFNTemplate;
-}
-
-export interface CFNChangeTemplateWithParams extends CFNChangeTemplate {
-  parameters: Parameter[] | undefined;
-}
-
 export interface CFNStackRefactorTemplates {
   sourceTemplate: CFNTemplate;
   destinationTemplate: CFNTemplate;
@@ -67,7 +58,10 @@ export interface CFNStackRefactorTemplates {
 }
 
 /** Returned by CategoryTemplateGenerator.generateGen1PreProcessTemplate(). */
-export interface Gen1PreProcessResult extends CFNChangeTemplateWithParams {
+export interface Gen1PreProcessResult {
+  oldTemplate: CFNTemplate;
+  newTemplate: CFNTemplate;
+  parameters: Parameter[] | undefined;
   resourcesToMove: ReadonlyMap<string, CFNResource>;
 }
 
@@ -185,7 +179,3 @@ export function isRefactorFailure(result: RefactorResult): result is Extract<Ref
 
 export const GEN1_WEB_APP_CLIENT = 'UserPoolClientWeb';
 export const GEN2_NATIVE_APP_CLIENT = 'UserPoolNativeAppClient';
-
-export enum GEN2_AUTH_LOGICAL_RESOURCE_ID {
-  IDENTITY_POOL_ROLE_ATTACHMENT = 'IdentityPoolRoleAttachment',
-}
