@@ -148,4 +148,4 @@ const retrieveOAuthValues = async ({
   return oAuthClientValues;
 };
 
-export default retrieveOAuthValues;
+export { retrieveOAuthValues };

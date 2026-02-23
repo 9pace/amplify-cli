@@ -1,5 +1,13 @@
 import { Parameter, StackRefactorExecutionStatus, StackRefactorStatus } from '@aws-sdk/client-cloudformation';
 
+export interface CategoryAssessment {
+  category: string;
+  resourceCount: number;
+  resourceTypes: string[];
+  hasOAuth: boolean;
+  stackId: string;
+}
+
 // https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/outputs-section-structure.html
 export interface CFNOutput {
   Description?: string;

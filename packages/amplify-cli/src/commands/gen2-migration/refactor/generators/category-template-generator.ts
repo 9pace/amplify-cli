@@ -21,12 +21,12 @@ import {
   GEN1_WEB_APP_CLIENT,
   GEN2_NATIVE_APP_CLIENT,
 } from '../types';
-import CFNConditionResolver from '../resolvers/cfn-condition-resolver';
-import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
-import CfnOutputResolver from '../resolvers/cfn-output-resolver';
-import CfnDependencyResolver from '../resolvers/cfn-dependency-resolver';
-import extractStackNameFromId from '../utils';
-import retrieveOAuthValues from '../oauth-values-retriever';
+import { CfnConditionResolver } from '../resolvers/cfn-condition-resolver';
+import { CfnParameterResolver } from '../resolvers/cfn-parameter-resolver';
+import { CfnOutputResolver } from '../resolvers/cfn-output-resolver';
+import { CfnDependencyResolver } from '../resolvers/cfn-dependency-resolver';
+import { extractStackNameFromId } from '../utils';
+import { retrieveOAuthValues } from '../oauth-values-retriever';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { Logger } from '../../../gen2-migration';
 
@@ -155,7 +155,7 @@ class CategoryTemplateGenerator {
 
     const gen1TemplateWithDepsResolved = new CfnDependencyResolver(gen1TemplateWithOutputsResolved).resolve(logicalResourceIds);
 
-    const gen1TemplateWithConditionsResolved = new CFNConditionResolver(gen1TemplateWithDepsResolved).resolve(Parameters);
+    const gen1TemplateWithConditionsResolved = new CfnConditionResolver(gen1TemplateWithDepsResolved).resolve(Parameters);
 
     // CloudFormation requires at least one resource in a stack.
     // If all resources are being moved, add a placeholder resource now so it exists
@@ -477,4 +477,4 @@ class CategoryTemplateGenerator {
   }
 }
 
-export default CategoryTemplateGenerator;
+export { CategoryTemplateGenerator };

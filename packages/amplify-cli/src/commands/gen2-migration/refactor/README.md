@@ -20,9 +20,8 @@ The refactor command implements `AmplifyMigrationStep` with two operations:
 
 1. **`extractParameters()`** — reads `--to` (Gen2 destination stack name) from CLI context
 2. **`initializeTemplateGenerator('forward')`** — creates AWS clients (CFN, SSM, Cognito, STS), gets account ID, builds `TemplateGenerator`
-3. **`templateGenerator.initializeForAssessment()`** — discovers category nested stacks via `discoverCategoryStacks()` in `generators/stack-discovery.ts`
-4. **`assessCategories()`** — for each discovered category, retrieves the source template, counts migratable resources, checks for OAuth
-5. **`templateGenerator.generateSelectedCategories()`** — runs the refactor pipeline for selected categories
+3. **`templateGenerator.assessCategories()`** — discovers category nested stacks, retrieves source templates, counts migratable resources, checks for OAuth
+4. **`templateGenerator.generateSelectedCategories()`** — runs the refactor pipeline for selected categories
 
 ### `rollback()`
 
@@ -36,7 +35,7 @@ The refactor command implements `AmplifyMigrationStep` with two operations:
 refactor.ts (orchestration)
   └── generators/
       ├── stack-discovery.ts        — discovers category stacks in Gen1/Gen2
-      ├── template-generator.ts     — pipeline: discover → generate → refactor → rollback
+      ├── template-generator.ts     — pipeline: assess → generate → refactor → rollback
       └── category-template-generator.ts — per-category template manipulation
   └── resolvers/
       ├── cfn-parameter-resolver.ts — resolves Ref to parameter values (incl. AWS::StackName)
@@ -80,7 +79,7 @@ The resolvers run in a specific order enforced by data flow (each resolver's out
 1. `CfnParameterResolver` — resolves `{"Ref":"ParamName"}` to parameter values
 2. `CfnOutputResolver` — resolves `{"Ref":"LogicalId"}` and `{"Fn::GetAtt":[...]}` to stack output values
 3. `CfnDependencyResolver` — strips `DependsOn` edges crossing the refactor boundary
-4. `CFNConditionResolver` — evaluates conditions and resolves `Fn::If` in properties
+4. `CfnConditionResolver` — evaluates conditions and resolves `Fn::If` in properties
 
 ## Resource Type Matching
 
@@ -110,5 +109,6 @@ Defined in `template-generator.ts:categoryGeneratorConfig`:
 - `NON_CUSTOM_RESOURCE_CATEGORY` — enum of known category names
 - `CFN_RESOURCE_TYPES` — union of all supported CloudFormation resource type enums
 - `CFNTemplate` — typed CloudFormation template structure
+- `CategoryAssessment` — assessment result per category (resource count, types, OAuth flag)
 - `CategoryRefactorResult` — output of preparing a category for refactoring
 - `ResourceMapping` — source/destination stack + logical ID pair for the CFN Refactor API

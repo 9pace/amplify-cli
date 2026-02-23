@@ -1,7 +1,7 @@
-import CFNConditionResolver from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-condition-resolver';
+import { CfnConditionResolver } from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-condition-resolver';
 import { CFNTemplate } from '../../../../../commands/gen2-migration/refactor/types';
 
-describe('CFNConditionResolver', () => {
+describe('CfnConditionResolver', () => {
   const template: CFNTemplate = {
     AWSTemplateFormatVersion: '2010-09-09',
     Description: 'CFN template with conditions',
@@ -116,7 +116,7 @@ describe('CFNConditionResolver', () => {
     },
   };
   it('should resolve the conditions in the template', () => {
-    const resolvedTemplate = new CFNConditionResolver(template).resolve([
+    const resolvedTemplate = new CfnConditionResolver(template).resolve([
       {
         ParameterKey: 'EnvType',
         ParameterValue: 'prod',
@@ -147,7 +147,7 @@ it('should resolve Fn::If conditions inside array properties', () => {
     Parameters: { Env: { Type: 'String' } },
     Outputs: {},
   };
-  const resolved = new CFNConditionResolver(template).resolve([{ ParameterKey: 'Env', ParameterValue: 'prod' }]);
+  const resolved = new CfnConditionResolver(template).resolve([{ ParameterKey: 'Env', ParameterValue: 'prod' }]);
   expect(resolved.Resources.MyResource.Properties.SecurityGroupIngress).toEqual([
     { IpProtocol: 'tcp', FromPort: 443 },
     { IpProtocol: 'tcp', FromPort: 22 },
@@ -173,7 +173,7 @@ it('should throw CloudFormationTemplateError when a Ref parameter cannot be reso
     Parameters: {},
     Outputs: {},
   };
-  expect(() => new CFNConditionResolver(templateWithUnresolvableRef).resolve([])).toThrow(
+  expect(() => new CfnConditionResolver(templateWithUnresolvableRef).resolve([])).toThrow(
     "Parameter 'MissingParam' referenced in condition could not be resolved",
   );
 });

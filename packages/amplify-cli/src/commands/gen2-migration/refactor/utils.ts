@@ -1,6 +1,6 @@
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
-export default function extractStackNameFromId(stackId: string): string {
+export function extractStackNameFromId(stackId: string): string {
   const name = stackId.split('/')[1];
   if (!name) {
     throw new AmplifyError('InvalidStackError', {

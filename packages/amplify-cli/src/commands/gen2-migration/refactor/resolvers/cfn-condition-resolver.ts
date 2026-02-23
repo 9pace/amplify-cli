@@ -14,7 +14,7 @@ import { AmplifyError } from '@aws-amplify/amplify-cli-core';
  * This is needed prior to a stack refactor since same conditions and params are not present in Gen1 and Gen2 stacks
  * and the resource being moved needs to have its condition resolved.
  */
-class CFNConditionResolver {
+class CfnConditionResolver {
   private readonly conditions: Record<string, CFNConditionFunction> | undefined;
   constructor(private readonly template: CFNTemplate) {
     this.conditions = template.Conditions;
@@ -152,4 +152,4 @@ class CFNConditionResolver {
   }
 }
 
-export default CFNConditionResolver;
+export { CfnConditionResolver };

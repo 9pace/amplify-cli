@@ -1,6 +1,6 @@
 import './setup-jest';
 import { TemplateGenerator } from '../../../../../commands/gen2-migration/refactor/generators/template-generator';
-import CategoryTemplateGenerator from '../../../../../commands/gen2-migration/refactor/generators/category-template-generator';
+import { CategoryTemplateGenerator } from '../../../../../commands/gen2-migration/refactor/generators/category-template-generator';
 import {
   CloudFormationClient,
   CreateStackRefactorCommand,
@@ -9,6 +9,7 @@ import {
   DescribeStackResourcesOutput,
   DescribeStacksCommand,
   DescribeStacksCommandOutput,
+  GetTemplateCommand,
   StackRefactorExecutionStatus,
   StackRefactorStatus,
   StackStatus,
@@ -378,9 +379,11 @@ const stubCategoryTemplateGenerator = {
   }),
 };
 jest.mock('../../../../../commands/gen2-migration/refactor/generators/category-template-generator', () => {
-  return jest.fn().mockImplementation(() => {
-    return stubCategoryTemplateGenerator;
-  });
+  return {
+    CategoryTemplateGenerator: jest.fn().mockImplementation(() => {
+      return stubCategoryTemplateGenerator;
+    }),
+  };
 });
 
 const describeStackResourcesResponse = (stackName: string | undefined) => {
@@ -445,6 +448,9 @@ describe('TemplateGenerator', () => {
       if (command instanceof DescribeStacksCommand) {
         return describeStacksResponse(command.input.StackName);
       }
+      if (command instanceof GetTemplateCommand) {
+        return Promise.resolve({ TemplateBody: JSON.stringify(stubReadTemplate) });
+      }
       if (command instanceof CreateStackRefactorCommand) {
         return Promise.resolve({
           StackRefactorId: '12345',
@@ -479,7 +485,7 @@ describe('TemplateGenerator', () => {
       logger: new Logger('mock', 'mock', 'mock'),
       region: REGION,
     });
-    await generator.initializeForAssessment();
+    await generator.assessCategories();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
     expect(result).toBe(true);
@@ -502,7 +508,7 @@ describe('TemplateGenerator', () => {
       logger: new Logger('mock', 'mock', 'mock'),
       region: REGION,
     });
-    await generator.initializeForAssessment();
+    await generator.assessCategories();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
     expect(result).toBe(true);
@@ -533,7 +539,7 @@ describe('TemplateGenerator', () => {
       logger: new Logger('mock', 'mock', 'mock'),
       region: REGION,
     });
-    await generator.initializeForAssessment();
+    await generator.assessCategories();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
     expect(result).toBe(true);
@@ -543,7 +549,7 @@ describe('TemplateGenerator', () => {
     expect(mockGenerateStackRefactorTemplates).toBeCalledTimes(NUM_CATEGORIES_TO_REFACTOR);
   });
 
-  it('should throw when no applicable destination category exists during initializeForAssessment', async () => {
+  it('should throw when no applicable destination category exists during assessCategories', async () => {
     const mockDescribeGen2StackResourcesWithStorageMissing: DescribeStackResourcesOutput = {
       StackResources: [
         {
@@ -582,9 +588,7 @@ describe('TemplateGenerator', () => {
       logger: new Logger('mock', 'mock', 'mock'),
       region: REGION,
     });
-    await expect(generator.initializeForAssessment()).rejects.toThrow(
-      'No corresponding category found in destination stack for storage category',
-    );
+    await expect(generator.assessCategories()).rejects.toThrow('No corresponding category found in destination stack for storage category');
   });
 
   it('should return false and rollback gen2 stack when stack refactor fails', async () => {
@@ -597,6 +601,9 @@ describe('TemplateGenerator', () => {
       }
       if (command instanceof DescribeStacksCommand) {
         return describeStacksResponse(command.input.StackName);
+      }
+      if (command instanceof GetTemplateCommand) {
+        return Promise.resolve({ TemplateBody: JSON.stringify(stubReadTemplate) });
       }
       if (command instanceof CreateStackRefactorCommand) {
         return Promise.resolve({ StackRefactorId: '12345' });
@@ -622,7 +629,7 @@ describe('TemplateGenerator', () => {
       logger: new Logger('mock', 'mock', 'mock'),
       region: REGION,
     });
-    await generator.initializeForAssessment();
+    await generator.assessCategories();
     const result = await generator.generateSelectedCategories(['auth', 'auth-user-pool-group', 'storage']);
 
     expect(result).toBe(false);

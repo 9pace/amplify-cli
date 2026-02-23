@@ -4,7 +4,7 @@ import * as cdk_from_cfn from 'cdk-from-cfn';
 import { CFNTemplate } from '../../refactor/types';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { CloudFormationClient, DescribeStackResourcesCommand, DescribeStacksCommand, Parameter } from '@aws-sdk/client-cloudformation';
-import CFNConditionResolver from '../../refactor/resolvers/cfn-condition-resolver';
+import { CfnConditionResolver } from '../../refactor/resolvers/cfn-condition-resolver';
 
 /**
  * Definition for Kinesis Analytics resource from Gen1 amplify-meta.json
@@ -192,7 +192,7 @@ export class CdkFromCfn {
     // (e.g., `const shouldNotCreateEnvResources = props.env! === 'NONE';` which is invalid syntax)
     const parameters = await this.getNestedStackParameters(logicalId);
     if (parameters.length > 0) {
-      const resolved = new CFNConditionResolver(template).resolve(parameters);
+      const resolved = new CfnConditionResolver(template).resolve(parameters);
       // Delete the Conditions block after resolution - cdk-from-cfn generates broken code for conditions
       // All Fn::If references have been resolved, and resources with unmet conditions have been removed
       delete resolved.Conditions;

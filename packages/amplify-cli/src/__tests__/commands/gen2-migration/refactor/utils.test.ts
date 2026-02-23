@@ -1,4 +1,4 @@
-import extractStackNameFromId from '../../../../commands/gen2-migration/refactor/utils';
+import { extractStackNameFromId } from '../../../../commands/gen2-migration/refactor/utils';
 
 describe('extractStackNameFromId', () => {
   it('should extract stack name from a valid CloudFormation ARN', () => {

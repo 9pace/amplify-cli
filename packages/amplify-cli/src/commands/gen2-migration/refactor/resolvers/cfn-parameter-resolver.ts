@@ -48,4 +48,4 @@ class CfnParameterResolver {
   }
 }
 
-export default CfnParameterResolver;
+export { CfnParameterResolver };

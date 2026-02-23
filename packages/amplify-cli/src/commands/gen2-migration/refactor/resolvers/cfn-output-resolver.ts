@@ -182,4 +182,4 @@ class CfnOutputResolver {
   }
 }
 
-export default CfnOutputResolver;
+export { CfnOutputResolver };

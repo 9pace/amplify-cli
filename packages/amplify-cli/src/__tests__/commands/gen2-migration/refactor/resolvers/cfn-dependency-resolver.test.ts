@@ -1,4 +1,4 @@
-import CfnDependencyResolver from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-dependency-resolver';
+import { CfnDependencyResolver } from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-dependency-resolver';
 import { CFNTemplate } from '../../../../../commands/gen2-migration/refactor/types';
 
 describe('CFNDependencyResolver', () => {

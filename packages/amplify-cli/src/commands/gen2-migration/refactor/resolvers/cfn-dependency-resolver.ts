@@ -26,4 +26,4 @@ class CfnDependencyResolver {
   }
 }
 
-export default CfnDependencyResolver;
+export { CfnDependencyResolver };

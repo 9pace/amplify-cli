@@ -16,14 +16,6 @@ const createAccountIdError = () =>
       'Verify your AWS credentials are configured and have permission to call sts:GetCallerIdentity. Run "aws sts get-caller-identity" to test.',
   });
 
-interface CategoryAssessment {
-  category: string;
-  resourceCount: number;
-  resourceTypes: string[];
-  hasOAuth: boolean;
-  stackId: string;
-}
-
 export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   public async executeImplications(): Promise<string[]> {
     return ['Move stateful resources from your Gen1 app to be managed by your Gen2 app'];
@@ -87,12 +79,7 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
   private async executeStackRefactor(toStack: string): Promise<void> {
     const templateGenerator = await this.initializeTemplateGenerator('forward', toStack);
 
-    // Initialize template generator (parse category stacks for assessment)
-    // Populates _categoryStackMap with: category → [sourceStackId, destinationStackId]
-    await templateGenerator.initializeForAssessment();
-
-    // Assess available category stacks for migration
-    const categoriesToMigrate = await this.assessCategories(templateGenerator);
+    const categoriesToMigrate = await this.assessAndDisplayCategories(templateGenerator);
 
     if (categoriesToMigrate.length === 0) {
       this.logger.info('ℹ️  No categories found for migration. Exiting.');
@@ -112,25 +99,22 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     }
   }
 
-  private async assessCategories(templateGenerator: TemplateGenerator): Promise<string[]> {
+  private async assessAndDisplayCategories(templateGenerator: TemplateGenerator): Promise<string[]> {
     this.logger.info('');
     this.logger.info('🔍 Assessing available resources for migration...');
 
-    const categoryAssessments = await this.assessCategoryResources(templateGenerator);
+    const categoryAssessments = await templateGenerator.assessCategories();
 
     if (categoryAssessments.length === 0) {
       this.logger.info('⚠️  No resources found in any category for migration.');
       return [];
     }
 
-    // Display assessment results
     this.logger.info('');
     this.logger.info('📊 Migration Assessment Results:');
     this.logger.info('');
 
-    for (const assessment of categoryAssessments) {
-      const { category, resourceCount, resourceTypes, hasOAuth, stackId } = assessment;
-
+    for (const { category, resourceCount, resourceTypes, hasOAuth, stackId } of categoryAssessments) {
       this.logger.info(`🔹 ${category.toUpperCase()} Category:`);
       this.logger.info(`   • Resources to migrate: ${resourceCount}`);
       this.logger.info(`   • Resource types: ${resourceTypes.join(', ')}`);
@@ -142,39 +126,6 @@ export class AmplifyMigrationRefactorStep extends AmplifyMigrationStep {
     }
 
     return categoryAssessments.map((a) => a.category);
-  }
-
-  // Add all resources that match the categoryGeneratorConfig filters to assessments
-  private async assessCategoryResources(templateGenerator: TemplateGenerator): Promise<CategoryAssessment[]> {
-    const assessments: CategoryAssessment[] = [];
-
-    for (const [category, [sourceCategoryStackId]] of templateGenerator.categoryStackMap.entries()) {
-      const sourceTemplate = await templateGenerator.getStackTemplate(sourceCategoryStackId);
-      if (!sourceTemplate?.Resources) continue;
-
-      const resourcesToMigrate = templateGenerator.getResourcesToMigrate(sourceTemplate, category);
-
-      if (resourcesToMigrate.length === 0) continue;
-
-      // Get resource types
-      const resourceTypes = [...new Set(resourcesToMigrate.map((logicalId) => sourceTemplate.Resources[logicalId]?.Type).filter(Boolean))];
-
-      // Check for OAuth (auth category only)
-      let hasOAuth = false;
-      if (category === 'auth') {
-        hasOAuth = await templateGenerator.hasOAuthParameter(sourceCategoryStackId);
-      }
-
-      assessments.push({
-        category,
-        resourceCount: resourcesToMigrate.length,
-        resourceTypes,
-        hasOAuth,
-        stackId: sourceCategoryStackId,
-      });
-    }
-
-    return assessments;
   }
 
   private async initializeTemplateGenerator(direction: 'forward' | 'rollback', toStack: string): Promise<TemplateGenerator> {

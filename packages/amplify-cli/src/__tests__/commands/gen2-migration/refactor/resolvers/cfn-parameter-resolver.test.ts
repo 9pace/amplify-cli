@@ -1,4 +1,4 @@
-import CfnParameterResolver from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-parameter-resolver';
+import { CfnParameterResolver } from '../../../../../commands/gen2-migration/refactor/resolvers/cfn-parameter-resolver';
 import { CFNTemplate } from '../../../../../commands/gen2-migration/refactor/types';
 
 describe('CFNParameterResolver', () => {

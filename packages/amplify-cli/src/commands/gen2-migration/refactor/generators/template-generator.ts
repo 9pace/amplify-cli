@@ -1,5 +1,5 @@
 import { CloudFormationClient, DescribeStacksCommand, GetTemplateCommand, Parameter } from '@aws-sdk/client-cloudformation';
-import CategoryTemplateGenerator, { HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
+import { CategoryTemplateGenerator, HOSTED_PROVIDER_META_PARAMETER_NAME } from './category-template-generator';
 import { discoverCategoryStacks } from './stack-discovery';
 import {
   NON_CUSTOM_RESOURCE_CATEGORY,
@@ -13,6 +13,7 @@ import {
   ResourceMapping,
   CFN_ANALYTICS_TYPE,
   CategoryRefactorResult,
+  CategoryAssessment,
   GEN1_WEB_APP_CLIENT,
   GEN2_NATIVE_APP_CLIENT,
   RefactorResult,
@@ -22,9 +23,9 @@ import { pollStackForTerminalState, tryUpdateStack } from '../cfn-stack-updater'
 import { SSMClient } from '@aws-sdk/client-ssm';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { refactorStack } from '../cfn-stack-refactor-updater';
-import CfnOutputResolver from '../resolvers/cfn-output-resolver';
-import CfnDependencyResolver from '../resolvers/cfn-dependency-resolver';
-import CfnParameterResolver from '../resolvers/cfn-parameter-resolver';
+import { CfnOutputResolver } from '../resolvers/cfn-output-resolver';
+import { CfnDependencyResolver } from '../resolvers/cfn-dependency-resolver';
+import { CfnParameterResolver } from '../resolvers/cfn-parameter-resolver';
 import { Logger } from '../../../gen2-migration';
 import { AmplifyError } from '@aws-amplify/amplify-cli-core';
 
@@ -134,45 +135,37 @@ class TemplateGenerator {
     this.categoryTemplateGenerators = [];
   }
 
-  // Public getter for categoryStackMap
-  public get categoryStackMap() {
-    return this._categoryStackMap;
-  }
-
-  // Checks whether a stack has OAuth configured by looking for the hostedUIProviderMeta parameter
-  public async hasOAuthParameter(stackId: string): Promise<boolean> {
-    const stackInfo = await this._cfnClient.send(new DescribeStacksCommand({ StackName: stackId }));
-    const parameters = stackInfo.Stacks?.[0]?.Parameters || [];
-    return parameters.some((param) => param.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
-  }
-
-  // Initialize for assessment - parse category stacks without generating templates
-  public async initializeForAssessment(): Promise<void> {
+  // Discovers category stacks and assesses each for migration readiness.
+  // Folds discovery (initializeForAssessment) + assessment into a single call.
+  public async assessCategories(): Promise<CategoryAssessment[]> {
     this._categoryStackMap = await discoverCategoryStacks(this._cfnClient, this.gen1RootStack, this.gen2RootStack, false);
-  }
 
-  // Get stack template for a given stack ID
-  public async getStackTemplate(stackId: string): Promise<CFNTemplate | undefined> {
-    const { TemplateBody } = await this._cfnClient.send(
-      new GetTemplateCommand({
-        StackName: stackId,
-      }),
-    );
-    if (!TemplateBody) return undefined;
-    return JSON.parse(TemplateBody);
-  }
+    const assessments: CategoryAssessment[] = [];
+    for (const [category, [sourceCategoryStackId]] of this._categoryStackMap.entries()) {
+      const { TemplateBody } = await this._cfnClient.send(new GetTemplateCommand({ StackName: sourceCategoryStackId }));
+      if (!TemplateBody) continue;
+      const sourceTemplate: CFNTemplate = JSON.parse(TemplateBody);
+      if (!sourceTemplate.Resources) continue;
 
-  // Get resources to migrate for a given category
-  public getResourcesToMigrate(template: CFNTemplate, category: string): string[] {
-    if (!template.Resources) return [];
+      const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
+      if (!config) continue;
 
-    const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
-    if (!config) return [];
+      const resourcesToMigrate = Object.entries(sourceTemplate.Resources)
+        .filter(([, resource]) => config.resourcesToRefactor.some((type) => type.valueOf() === resource.Type))
+        .map(([logicalId]) => logicalId);
+      if (resourcesToMigrate.length === 0) continue;
 
-    const resourcesToRefactor = config.resourcesToRefactor;
-    return Object.entries(template.Resources)
-      .filter(([, resource]) => resourcesToRefactor.some((type) => type.valueOf() === resource.Type))
-      .map(([logicalId]) => logicalId);
+      const resourceTypes = [...new Set(resourcesToMigrate.map((id) => sourceTemplate.Resources[id]?.Type).filter(Boolean))];
+
+      let hasOAuth = false;
+      if (category === 'auth') {
+        const stackInfo = await this._cfnClient.send(new DescribeStacksCommand({ StackName: sourceCategoryStackId }));
+        hasOAuth = (stackInfo.Stacks?.[0]?.Parameters || []).some((p) => p.ParameterKey === HOSTED_PROVIDER_META_PARAMETER_NAME);
+      }
+
+      assessments.push({ category, resourceCount: resourcesToMigrate.length, resourceTypes, hasOAuth, stackId: sourceCategoryStackId });
+    }
+    return assessments;
   }
 
   // Generate templates for selected categories only (Entry point for refactor)
@@ -247,7 +240,7 @@ class TemplateGenerator {
 
   private initializeCategoryGenerators(categories?: Set<string>) {
     this.categoryTemplateGenerators.length = 0;
-    for (const [category, [sourceStackId, destinationStackId]] of this.categoryStackMap.entries()) {
+    for (const [category, [sourceStackId, destinationStackId]] of this._categoryStackMap.entries()) {
       if (categories && !categories.has(category)) continue;
       const config = this.categoryGeneratorConfig[category as keyof typeof this.categoryGeneratorConfig];
 
@@ -489,6 +482,9 @@ class TemplateGenerator {
       this.accountId,
     ).resolve(sourceLogicalIds, Outputs, StackResources);
     const newSourceTemplateWithDepsResolved = new CfnDependencyResolver(newSourceTemplateWithOutputsResolved).resolve(sourceLogicalIds);
+    // CfnConditionResolver is intentionally omitted here (unlike the forward path in CategoryTemplateGenerator).
+    // Gen2 templates are CDK-generated and CDK resolves conditions at synth time, so no Conditions section exists.
+    // Any Gen1 resources moved to Gen2 during the forward pass already had their conditions resolved by CfnConditionResolver.
     return categoryTemplateGenerator.generateRefactorTemplates(
       sourceResourcesToRemove,
       new Map<string, CFNResource>(),
