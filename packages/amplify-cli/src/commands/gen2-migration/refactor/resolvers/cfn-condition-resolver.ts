@@ -28,9 +28,8 @@ class CFNConditionResolver {
     Object.entries(this.conditions).forEach(([conditionKey, conditionValue]) => {
       const fnType = Object.keys(conditionValue)[0];
       if (Object.values(CFNFunction).includes(fnType as CFNFunction)) {
-        const conditionStatements = conditionValue[fnType as keyof CFNConditionFunction];
-        const [leftStatement, rightStatement] = conditionStatements as [CFNConditionFunctionStatement, CFNConditionFunctionStatement];
-        const result = this.resolveCondition(leftStatement, rightStatement, parameters, fnType as CFNFunction);
+        const conditionStatements = conditionValue[fnType as keyof CFNConditionFunction] as CFNConditionFunctionStatement[];
+        const result = this.resolveCondition(conditionStatements[0], conditionStatements[1], parameters, fnType as CFNFunction);
         conditionValueMap.set(conditionKey, result);
       }
     });
@@ -42,13 +41,10 @@ class CFNConditionResolver {
 
   private resolveCondition(
     leftStatement: CFNConditionFunctionStatement,
-    rightStatement: CFNConditionFunctionStatement,
+    rightStatement: CFNConditionFunctionStatement | undefined,
     params: Parameter[],
     fnType: CFNFunction,
   ): boolean {
-    // Note: For Fn::Not, rightStatement is undefined at runtime despite the type signature.
-    // The as-cast in resolve() destructures a 1-element array as a 2-element tuple — pre-existing tech debt.
-    // resolveStatement handles undefined safely; do not remove that handling.
     const resolvedLeft = this.resolveStatement(leftStatement, params);
     const resolvedRight = this.resolveStatement(rightStatement, params);
 
@@ -69,8 +65,7 @@ class CFNConditionResolver {
 
   /**
    * Resolves a single condition function statement to a primitive value.
-   * Accepts undefined because Fn::Not passes undefined as the right statement at runtime
-   * (see type-lie note in resolveCondition).
+   * Accepts undefined because Fn::Not has a single operand (no right statement).
    */
   private resolveStatement(statement: CFNConditionFunctionStatement | undefined, params: Parameter[]): boolean | string | undefined {
     if (statement === undefined || typeof statement !== 'object') {
@@ -84,19 +79,16 @@ class CFNConditionResolver {
       // and resolveStatement is only reachable through resolve() → resolveCondition().
       const nested = this.conditions![name];
       const fnType = Object.keys(nested)[0] as CFNFunction;
-      const [left, right] = nested[fnType as keyof CFNConditionFunction] as [CFNConditionFunctionStatement, CFNConditionFunctionStatement];
-      return this.resolveCondition(left, right, params, fnType);
+      const operands = nested[fnType as keyof CFNConditionFunction] as CFNConditionFunctionStatement[];
+      return this.resolveCondition(operands[0], operands[1], params, fnType);
     }
 
     // Nested CFN function: { "Fn::Equals": [...] }
     const firstKey = Object.keys(statement)[0];
     if (Object.values(CFNFunction).includes(firstKey as CFNFunction)) {
       const fnType = firstKey as CFNFunction;
-      const [left, right] = (statement as CFNConditionFunction)[fnType as keyof CFNConditionFunction] as [
-        CFNConditionFunctionStatement,
-        CFNConditionFunctionStatement,
-      ];
-      return this.resolveCondition(left, right, params, fnType);
+      const operands = (statement as CFNConditionFunction)[fnType as keyof CFNConditionFunction] as CFNConditionFunctionStatement[];
+      return this.resolveCondition(operands[0], operands[1], params, fnType);
     }
 
     // Parameter ref: { Ref: "ParamName" }
